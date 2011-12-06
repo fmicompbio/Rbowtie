@@ -107,7 +107,11 @@ NOASSERT_FLAGS = -DNDEBUG
 FILE_FLAGS = -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 
 BIN_LIST = bowtie-build \
-	   bowtie
+	   bowtie \
+	   SpliceMap \
+	   amalgamateSAM \
+	   runSpliceMap_QuasR \
+	   sortsam
 
 GENERAL_LIST = $(wildcard scripts/*.sh) \
                $(wildcard scripts/*.pl) \
@@ -145,7 +149,7 @@ SRC_PKG_LIST = $(wildcard *.h) \
 
 BIN_PKG_LIST = $(GENERAL_LIST)
 
-all: $(BIN_LIST) ../inst/bowtie ../inst/bowtie-build
+all: $(BIN_LIST) ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/runSpliceMap_QuasR ../inst/sortsam
 
 
 DEFS=-fno-strict-aliasing \
@@ -208,6 +212,20 @@ bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMEN
 #		$(OTHER_CPPS) \
 #		$(LIBS)
 
+#
+# SpliceMap targets
+#
+SpliceMap:
+	(cd SpliceMap; make)
+
+runSpliceMap_QuasR: SpliceMap
+	(cd SpliceMap; make)
+
+sortsam: SpliceMap
+	(cd SpliceMap; make)
+
+amalgamateSAM: SpliceMap
+	(cd SpliceMap; make)
 
 
 .PHONY: doc
@@ -227,6 +245,18 @@ doc/manual.html: MANUAL.markdown
 ../inst/bowtie-build: ../inst/bowtie
 	cp bowtie-build ../inst/bowtie-build
 
+../inst/SpliceMap: SpliceMap
+	cp SpliceMap/SpliceMap ../inst/SpliceMap
+
+../inst/amalgamateSAM: SpliceMap
+	cp SpliceMap/amalgamateSAM ../inst/amalgamateSAM
+
+../inst/runSpliceMap_QuasR: SpliceMap
+	cp SpliceMap/runSpliceMap_QuasR ../inst/runSpliceMap_QuasR
+
+../inst/sortsam: SpliceMap
+	cp SpliceMap/sortsam ../inst/sortsam
+
 MANUAL: MANUAL.markdown
 	perl doc/strip_markdown.pl < $^ > $@
 
@@ -236,4 +266,4 @@ clean:
 	bowtie_prof \
 	$(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX) bowtie_prof) \
 	bowtie-src.zip bowtie-bin.zip
-	rm -f core.* ../inst/bowtie ../inst/bowtie-build
+	rm -f core.* ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/runSpliceMap_QuasR ../inst/sortsam
