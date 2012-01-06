@@ -38,14 +38,13 @@ citEntry(entry="article",
 
 citEntry(entry="unpublished",
 	 title="Rbowtie: An R wrapper for bowtie and SpliceMap short read aligners",
-	 author=personList(as.person("Anita Lerch"),
-			   as.person("Dimos Gaidatzis"),
-			   as.person("Florian Hahne"),
-	                   as.person("Michael B Stadler")),
+	 author=personList(as.person("Florian Hahne"),
+	                   as.person("Anita Lerch"),
+			   as.person("Michael B Stadler")),
 	 #journal="",
 	 #year=,
 	 note=vers,
-	 textVersion="Lerch A, Gaidatzis D, Hahne F, Stadler MB. Rbowtie: An R wrapper for bowtie and SpliceMap short read aligners. (unpublished)"
+	 textVersion=" Hahne F, Lerch A,Stadler MB. Rbowtie: An R wrapper for bowtie and SpliceMap short read aligners. (unpublished)"
 )
 
 citFooter("This free open-source software implements academic
