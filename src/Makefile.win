@@ -130,7 +130,7 @@ SRC_PKG_LIST = $(wildcard *.h) \
 
 BIN_PKG_LIST = $(GENERAL_LIST)
 
-all: $(BIN_LIST) ../inst/bowtie ../inst/bowtie-build
+all: $(BIN_LIST) ../inst/bowtie
 
 
 DEFS=-fno-strict-aliasing \
@@ -156,7 +156,7 @@ endef
 
 bowtie-build: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 	$(checksum)
-	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(EXTRA_FLAGS) \
+	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(EXTRA_FLAGS) -static-libgcc \
 		-DEBWT_BUILD_HASH=`cat .$@.md5` \
 		$(DEFS) $(NOASSERT_FLAGS) -Wall \
 		$(INC) \
@@ -170,7 +170,7 @@ bowtie-build: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 
 bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
 	$(checksum)
-	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(EXTRA_FLAGS) \
+	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(EXTRA_FLAGS) -static-libgcc \
 		-DEBWT_SEARCH_HASH=`cat .$@.md5` \
 		$(DEFS) $(NOASSERT_FLAGS) -Wall \
 		$(INC) \
@@ -200,15 +200,6 @@ bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMEN
 SpliceMap:
 	(cd SpliceMap; make)
 
-runSpliceMap_QuasR: SpliceMap
-	(cd SpliceMap; make)
-
-sortsam: SpliceMap
-	(cd SpliceMap; make)
-
-amalgamateSAM: SpliceMap
-	(cd SpliceMap; make)
-
 
 .PHONY: doc
 doc: doc/manual.html MANUAL
@@ -223,20 +214,13 @@ doc/manual.html: MANUAL.markdown
 ../inst/bowtie: $(BIN_LIST)
 	mkdir -p ../inst
 	cp bowtie ../inst/bowtie
-
-../inst/bowtie-build: ../inst/bowtie
 	cp bowtie-build ../inst/bowtie-build
 
 ../inst/SpliceMap: SpliceMap
+	mkdir -p ../inst
 	cp SpliceMap/SpliceMap ../inst/SpliceMap
-
-../inst/amalgamateSAM: SpliceMap
 	cp SpliceMap/amalgamateSAM ../inst/amalgamateSAM
-
-../inst/runSpliceMap_QuasR: SpliceMap
 	cp SpliceMap/runSpliceMap_QuasR ../inst/runSpliceMap_QuasR
-
-../inst/sortsam: SpliceMap
 	cp SpliceMap/sortsam ../inst/sortsam
 
 MANUAL: MANUAL.markdown
