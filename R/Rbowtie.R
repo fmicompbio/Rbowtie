@@ -128,6 +128,6 @@ bowtie_usage <- function()
 ## The direct binary call function
 .execute <- function(callstr){
   call <- file.path(system.file(package="Rbowtie"), callstr)
-  return(system(call, intern=TRUE))
+  return(system(shQuote(call), intern=TRUE))
 }
 
