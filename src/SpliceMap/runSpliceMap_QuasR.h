@@ -7,7 +7,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <sys/wait.h>
+//#include <sys/wait.h>
 #include <limits>
 #include <climits>
 #include <cstdlib>

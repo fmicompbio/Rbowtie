@@ -4,7 +4,8 @@ Title: R bowtie wrapper
 Version: 1.0
 Date: 2010-12-17
 Author: Florian Hahne
-Maintainer: Florian Hahne <florian.hahne@novartis.com>
+Maintainer: Anita Lerch <anita.lerch@fmi.ch>
+Suggests: parallel
 Description: This package provides an R wrapper around the popular bowtie short read aligner.
 License: LGPL
 LazyLoad: yes

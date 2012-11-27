@@ -107,11 +107,7 @@ NOASSERT_FLAGS = -DNDEBUG
 FILE_FLAGS = -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 
 BIN_LIST = bowtie-build \
-	   bowtie \
-	   SpliceMap \
-	   amalgamateSAM \
-	   runSpliceMap_QuasR \
-	   sortsam
+	   bowtie
 
 GENERAL_LIST = $(wildcard scripts/*.sh) \
                $(wildcard scripts/*.pl) \
@@ -149,7 +145,7 @@ SRC_PKG_LIST = $(wildcard *.h) \
 
 BIN_PKG_LIST = $(GENERAL_LIST)
 
-all: $(BIN_LIST) ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/runSpliceMap_QuasR ../inst/sortsam
+all: $(BIN_LIST) ../inst/bowtie SpliceMap/SpliceMap ../inst/SpliceMap
 
 
 DEFS=-fno-strict-aliasing \
@@ -215,18 +211,10 @@ bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMEN
 #
 # SpliceMap targets
 #
-SpliceMap:
-	(cd SpliceMap; make)
-
-runSpliceMap_QuasR: SpliceMap
-	(cd SpliceMap; make)
-
-sortsam: SpliceMap
-	(cd SpliceMap; make)
-
-amalgamateSAM: SpliceMap
-	(cd SpliceMap; make)
-
+SpliceMap/SpliceMap:
+	cd SpliceMap; \
+	make -f Makefile; \
+	echo "MAKE of SpliceMap DONE"	
 
 .PHONY: doc
 doc: doc/manual.html MANUAL
@@ -241,20 +229,16 @@ doc/manual.html: MANUAL.markdown
 ../inst/bowtie: $(BIN_LIST)
 	mkdir -p ../inst
 	cp bowtie ../inst/bowtie
-
-../inst/bowtie-build: ../inst/bowtie
 	cp bowtie-build ../inst/bowtie-build
+#	cp bowtie-inspect ../inst/bowtie-inspect
 
-../inst/SpliceMap: SpliceMap
+../inst/SpliceMap: SpliceMap/SpliceMap
+	mkdir -p ../inst
 	cp SpliceMap/SpliceMap ../inst/SpliceMap
-
-../inst/amalgamateSAM: SpliceMap
 	cp SpliceMap/amalgamateSAM ../inst/amalgamateSAM
-
-../inst/runSpliceMap_QuasR: SpliceMap
+	cp SpliceMap/getSpliceMapUnmapped ../inst/getSpliceMapUnmapped
+	cp SpliceMap/fuseReorder ../inst/fuseReorder
 	cp SpliceMap/runSpliceMap_QuasR ../inst/runSpliceMap_QuasR
-
-../inst/sortsam: SpliceMap
 	cp SpliceMap/sortsam ../inst/sortsam
 
 MANUAL: MANUAL.markdown
@@ -266,4 +250,4 @@ clean:
 	bowtie_prof \
 	$(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX) bowtie_prof) \
 	bowtie-src.zip bowtie-bin.zip
-	rm -f core.* ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/runSpliceMap_QuasR ../inst/sortsam
+	rm -f core.* ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/getSpliceMapUnmapped ../inst/fuseReorder ../inst/runSpliceMap_QuasR ../inst/sortsam

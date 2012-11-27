@@ -9,7 +9,7 @@ CC=`"${R_HOME}/bin/R" CMD config CC`
 CPP=`"${R_HOME}/bin/R" CMD config CPP`
 CXX=`"${R_HOME}/bin/R" CMD config CXX`
 HEADERS = $(wildcard *.h)
-BOWTIE_PTHREADS=0
+BOWTIE_PTHREADS = 0
 BOWTIE_MM = 1
 BOWTIE_SHARED_MEM = 1
 
@@ -34,14 +34,9 @@ PTHREAD_LIB =
 PTHREAD_DEF =
 ifeq (1,$(BOWTIE_PTHREADS))
 PTHREAD_DEF = -DBOWTIE_PTHREADS
-ifeq (1,$(WINDOWS))
 # pthreads for windows forces us to be specific about the library
-PTHREAD_LIB = -L. -lpthreadGC2
-PTHREAD_PKG = pthreadGC2.dll
-else
-# There's also -pthread, but that only seems to work on Linux
-PTHREAD_LIB = -lpthread
-endif
+PTHREAD_LIB = -pthread
+PTHREAD_PKG =
 endif
 
 PREFETCH_LOCALITY = 2
@@ -91,6 +86,7 @@ RELEASE_DEFS = -DCOMPILER_OPTIONS="\"$(RELEASE_FLAGS) $(EXTRA_FLAGS)\""
 NOASSERT_FLAGS = -DNDEBUG
 FILE_FLAGS = -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 
+# bowtie-inspect removed from the BIN_LIST
 BIN_LIST = bowtie-build \
 	   bowtie
 
@@ -130,14 +126,15 @@ SRC_PKG_LIST = $(wildcard *.h) \
 
 BIN_PKG_LIST = $(GENERAL_LIST)
 
-all: $(BIN_LIST) ../inst/bowtie
+
+all: $(BIN_LIST) ../inst/bowtie SpliceMap/SpliceMap ../inst/SpliceMap
 
 
 DEFS=-fno-strict-aliasing \
      -DBOWTIE_VERSION="\"`cat VERSION`\"" \
      -DBUILD_HOST="\"`hostname`\"" \
      -DBUILD_TIME="\"`date`\"" \
-     -DCOMPILER_VERSION="\"`R CMD config CXX -v 2>&1 | grep " version "`\"" \
+     -DCOMPILER_VERSION="\"`R CMD config CXX -v 2>&1 | grep \" version \"`\"" \
      $(FILE_FLAGS) \
      $(PTHREAD_DEF) \
      $(PREF_DEF) \
@@ -197,9 +194,10 @@ bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMEN
 #
 # SpliceMap targets
 #
-SpliceMap:
-	(cd SpliceMap; make)
-
+SpliceMap/SpliceMap:
+	cd SpliceMap; \
+	make -f Makefile.win; \
+	echo "MAKE of SpliceMap DONE"	
 
 .PHONY: doc
 doc: doc/manual.html MANUAL
@@ -215,11 +213,14 @@ doc/manual.html: MANUAL.markdown
 	mkdir -p ../inst
 	cp bowtie ../inst/bowtie
 	cp bowtie-build ../inst/bowtie-build
+#	cp bowtie-inspect ../inst/bowtie-inspect
 
-../inst/SpliceMap: SpliceMap
+../inst/SpliceMap: SpliceMap/SpliceMap
 	mkdir -p ../inst
 	cp SpliceMap/SpliceMap ../inst/SpliceMap
 	cp SpliceMap/amalgamateSAM ../inst/amalgamateSAM
+	cp SpliceMap/getSpliceMapUnmapped ../inst/getSpliceMapUnmapped
+	cp SpliceMap/fuseReorder ../inst/fuseReorder
 	cp SpliceMap/runSpliceMap_QuasR ../inst/runSpliceMap_QuasR
 	cp SpliceMap/sortsam ../inst/sortsam
 
@@ -232,4 +233,4 @@ clean:
 	bowtie_prof \
 	$(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX) bowtie_prof) \
 	bowtie-src.zip bowtie-bin.zip
-	rm -f core.* ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/runSpliceMap_QuasR ../inst/sortsam
+	rm -f core.* ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/getSpliceMapUnmapped ../inst/fuseReorder ../inst/runSpliceMap_QuasR ../inst/sortsam

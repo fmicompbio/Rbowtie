@@ -7,6 +7,46 @@
 using namespace std;
 
 
+
+// added by M. Stadler, April 13, 2012
+// helper function to extract integer identifier from sequence name
+int extractId (const string &buffer) {
+    static int start_pos;
+    static int end_pos;
+
+    start_pos = buffer.find('[')+1;
+    end_pos = buffer.find(']', start_pos);
+    if(start_pos != string::npos && end_pos != string::npos)
+        return atoi(buffer.substr(start_pos, end_pos-start_pos).c_str());
+    else
+        return -1;
+}
+// helper function to advance in sequence/name/quality files to next identifier
+int advanceToId (const int id,
+		 ifstream &fhS1, ifstream &fhI1, ifstream &fhQ1, string &s1, string &i1, string &q1,
+		 ifstream &fhS2, ifstream &fhI2, ifstream &fhQ2, string &s2, string &i2, string &q2) {
+    int currId = -1;
+    while(fhS1.good() & fhS2.good() & fhI1.good() & fhI2.good() & fhQ1.good() & fhQ2.good()) {
+	getline (fhS1, s1);
+	getline (fhI1, i1);
+	getline (fhQ1, q1);
+	getline (fhS2, s2);
+	getline (fhI2, i2);
+	getline (fhQ2, q2);
+	currId = extractId(i1);
+	// fix empty quality string (fasta input)
+	if( q1[0] == 0 )
+	    q1 = string(s1.length(), 'I');
+	if( q2[0] == 0 )
+	    q2 = string(s2.length(), 'I');
+	if(id==-1 || id==currId)
+	    break;
+    }
+    return currId;
+}
+
+
+
 int main (int argc, char * const argv[]) 
 {
 	ifstream curr_SAM_file;
@@ -24,13 +64,17 @@ int main (int argc, char * const argv[])
 
 	struct timeval tv;
 	struct timeval start_tv;
+
+	int selectSingleHit = 0; // added by M. Stadler on August 17, 2012
 	
 	gettimeofday(&start_tv, NULL);
 	
+	srand( 98765 ); // added by M. Stadler on July 5, 2012: make it deterministic and reproducible
 	
-	if (argc == 3) {
+	if (argc == 4) {
 		temp_path = argv[1];
 		outfile_name = argv[2];
+		selectSingleHit = atoi(argv[3]);
 	}else {
 		print_usage_and_exit();
 	}
@@ -155,7 +199,42 @@ int main (int argc, char * const argv[])
 	
 	priority_queue<posline_t,vector<posline_t>, comparison_reverse_t> data_queue;
 	
-	
+
+	// added by M. Stadler, April 13, 2012
+	// open sequence/id/quality files
+	bool paired = false;
+	string seq_str1, id_str1, qual_str1, seq_str2, id_str2, qual_str2;
+	ifstream fhSeq1 ((temp_path + "read_1_1").c_str(), ifstream::in);
+        if(! fhSeq1.good()) {
+	    cerr << "FATAL ERROR opening " << temp_path << "read_1_1" << endl;
+	    exit(97);
+	}
+	ifstream fhId1 ((temp_path + "read_1_1.names").c_str(), ifstream::in);
+        if(! fhId1.good()) {
+	    cerr << "FATAL ERROR opening " << temp_path << "read_1_1.names" << endl;
+	    exit(97);
+	}
+	ifstream fhQual1 ((temp_path + "read_1_1.quals").c_str(), ifstream::in);
+        if(! fhQual1.good()) {
+	    cerr << "FATAL ERROR opening " << temp_path << "read_1_1.quals" << endl;
+	    exit(97);
+	}
+	fstream fhOut ((temp_path + "unmapped2.sam").c_str(), fstream::out | fstream::app);
+        if(! fhOut.good()) {
+	    cerr << "FATAL ERROR opening " << temp_path << "unmapped2.sam" << endl; exit(97);
+	}
+	ifstream fhSeq2 ((temp_path + "read_1_2").c_str(), ifstream::in);
+	ifstream fhId2 ((temp_path + "read_1_2.names").c_str(), ifstream::in);
+	ifstream fhQual2 ((temp_path + "read_1_2.quals").c_str(), ifstream::in);
+	if( fhSeq2.good() && fhId2.good() && fhQual2.good() )
+	    paired = true;
+	int fhCurrId = -1, readgroupCurrId = -1;
+	if(paired)
+	    fhCurrId = advanceToId(-1,
+				   fhSeq1, fhId1, fhQual1, seq_str1, id_str1, qual_str1,
+				   fhSeq2, fhId2, fhQual2, seq_str2, id_str2, qual_str2);
+
+
 	bool done = false;
 	
 	
@@ -234,7 +313,6 @@ int main (int argc, char * const argv[])
 		}
 		
 		
-		
 		while (data_queue.size() > 0 && data_queue.top().pos <= min_file_index) {
 			
 			done = false;
@@ -242,13 +320,11 @@ int main (int argc, char * const argv[])
 			int first_idx = data_queue.top().pos;
 			vector<posline_t> curr_read_group;
 			
-			
 			while (data_queue.size() > 0 && data_queue.top().pos == first_idx) {
 				curr_read_group.push_back(data_queue.top());
 				data_queue.pop();
 				
 			}
-			
 			
 			int map_count[2] = {0,0}; 
 			if (curr_read_group.size() > 1) {
@@ -303,6 +379,65 @@ int main (int argc, char * const argv[])
 			
 			if (non_unique) {
 				
+			        // added by M. Stadler & D. Gaidatzis, March 28, 2012
+			        // modified by M. Stadler, August 17, 2012 (selectSingleHit)
+			        // for multi-mappers, select one alignment(-pair) randomly (part 1 of 3)
+			        int random_read_select[2] = {-1, -1};
+				string tmp_line_str;
+				size_t tmp_tabloc, tmp_tabloc2;
+				int tmp_flag;
+				if(selectSingleHit) {
+				    random_read_select[0] = rand() % curr_read_group.size();
+				    tmp_line_str = curr_read_group[random_read_select[0]].data;
+				    tmp_tabloc = tmp_line_str.find('\t');
+				    tmp_tabloc2 = tmp_line_str.find('\t',tmp_tabloc+1); 
+				    tmp_flag = atoi(tmp_line_str.substr(tmp_tabloc+1,tmp_tabloc2 - tmp_tabloc - 1).c_str());
+				    if (tmp_flag & 1 && !(tmp_flag & 8)) { // selected read is one of a pair --> find index of mate
+					// get chromosome
+					tmp_tabloc = tmp_tabloc2;
+					tmp_tabloc2 = tmp_line_str.find('\t',tmp_tabloc+1);
+					string tmp_chr = tmp_line_str.substr(tmp_tabloc+1,tmp_tabloc2 - tmp_tabloc - 1);
+					// get mate position
+					tmp_tabloc = tmp_tabloc2;
+					for(int ntabs=0; ntabs < 4; ntabs++)
+					    tmp_tabloc = tmp_line_str.find('\t',tmp_tabloc+1);
+					tmp_tabloc2 = tmp_line_str.find('\t',tmp_tabloc+1);
+					int tmp_mate_position = atoi(tmp_line_str.substr(tmp_tabloc+1,tmp_tabloc2 - tmp_tabloc - 1).c_str());
+					// get mate index
+					int mate_index = 0;
+					curr_read_group_it = curr_read_group.begin();
+					while (curr_read_group_it != curr_read_group.end()) {
+					    tmp_line_str = curr_read_group_it->data;
+					    // get potential mate chromosome
+					    tmp_tabloc = tmp_line_str.find('\t');
+					    tmp_tabloc2 = tmp_line_str.find('\t',tmp_tabloc+1);
+					    int tmp_mate_flag = atoi(tmp_line_str.substr(tmp_tabloc+1,tmp_tabloc2 - tmp_tabloc - 1).c_str());
+					    if(tmp_mate_flag & 1 && !(tmp_mate_flag & 8)) { // selected mate is one of a pair
+						tmp_tabloc = tmp_tabloc2;
+						tmp_tabloc2 = tmp_line_str.find('\t',tmp_tabloc+1);
+						string tmp_mate_chr = tmp_line_str.substr(tmp_tabloc+1,tmp_tabloc2 - tmp_tabloc - 1);
+						if(tmp_mate_chr.compare(tmp_chr)==0) {      // selected mate is on the correct chr
+						    // get potential mate position
+						    tmp_tabloc = tmp_tabloc2;
+						    tmp_tabloc2 = tmp_line_str.find('\t',tmp_tabloc+1);
+						    if(tmp_mate_position == atoi(tmp_line_str.substr(tmp_tabloc+1,tmp_tabloc2 - tmp_tabloc - 1).c_str())) {
+							// found mate (correct position)
+							random_read_select[1] = mate_index;
+							break;
+						    }
+						}
+					    }
+					    curr_read_group_it++;
+					    mate_index++;
+					}
+				    }
+				}
+				
+			        // added by M. Stadler & D. Gaidatzis, March 28, 2012
+			        // modified by M. Stadler, August 17, 2012 (selectSingleHit)
+			        // for multi-mappers, select one alignment(-pair) randomly (part 2 of 3)
+			        int curr_read_group_counter = 0;
+
 				curr_read_group_it = curr_read_group.begin();
 				while (curr_read_group_it != curr_read_group.end()) {
 					string line_str = curr_read_group_it->data;
@@ -337,15 +472,78 @@ int main (int argc, char * const argv[])
 						line_str += "\tNH:i:" + IntToStr(map_count[0]);
 					}
 					
+
+					// original code from amalgamateSAM.cpp
+					/*
 					(*(outsam_list[curr_read_group_it->file_index])) << line_str << '\n';
 					curr_read_group_it++;
+					*/
+					// modified by M. Stadler & D. Gaidatzis, March 28, 2012
+					// for multi-mappers, select one alignment(-pair) randomly (part 3 of 3)
+					/*
+					if(curr_read_group_counter == random_read_select[0] || curr_read_group_counter == random_read_select[1])
+					    (*(outsam_list[curr_read_group_it->file_index])) << line_str << '\n';
+					curr_read_group_it++;
+					curr_read_group_counter++;
+					*/
+					// modified by M. Stadler, April 13, 2012
+					// modified by M. Stadler, August 17, 2012 (selectSingleHit)
+					// if the paired==true and the selected alignmend only half aligned: remove alignment and output pair to fhOut
+					if(!selectSingleHit ||
+					   (curr_read_group_counter == random_read_select[0] || curr_read_group_counter == random_read_select[1])) {
+					    if(paired && flag & 8) { // next segment in the template unmapped
+						// read sequence/name/qual
+						readgroupCurrId = extractId(line_str);
+						if(readgroupCurrId != fhCurrId)
+						    fhCurrId = advanceToId(readgroupCurrId,
+									   fhSeq1, fhId1, fhQual1, seq_str1, id_str1, qual_str1,
+									   fhSeq2, fhId2, fhQual2, seq_str2, id_str2, qual_str2);
+						// output half-aligned pair as unmapped to fhOut
+						if(readgroupCurrId == fhCurrId) {
+						    fhOut << id_str1 << "\t77\t*\t0\t0\t*\t*\t0\t0\t" << seq_str1 << "\t" << qual_str1 << endl;
+						    fhOut << id_str2 << "\t141\t*\t0\t0\t*\t*\t0\t0\t" << seq_str2 << "\t" << qual_str2 << endl;
+						} else {
+						    cerr << "FATAL ERROR 117: could not get raw read information for id " << readgroupCurrId << ": " << line_str << endl;
+						    exit(117);
+						}
+					    } else {
+						(*(outsam_list[curr_read_group_it->file_index])) << line_str << '\n';
+					    }
+					}
+					curr_read_group_it++;
+					curr_read_group_counter++;
 				}
 			}else {
-				
 				curr_read_group_it = curr_read_group.begin();
 				while (curr_read_group_it != curr_read_group.end()) {
-					(*(outsam_list[curr_read_group_it->file_index])) << curr_read_group_it->data << '\n';
-					curr_read_group_it++;
+				    // original code from amalgamateSAM.cpp
+				    /*
+				    (*(outsam_list[curr_read_group_it->file_index])) << curr_read_group_it->data << '\n';
+				    curr_read_group_it++;
+				    */
+				    // modified by M. Stadler, April 13, 2012
+				    // if the paired==true and the selected alignmend only half aligned: remove alignment and output pair to fhOut
+				    string line_str = curr_read_group_it->data;
+				    // remark: the following condition will let through a small number of alignments with BAM_FMUNMAP and map_count={1,1}, e.g. read pairs with exactly one alignment per read on different chromosomes
+				    if(paired && (map_count[0]==0 || map_count[1]==0)) { // next segment in the template unmapped
+					// read sequence/name/qual
+					readgroupCurrId = extractId(line_str);
+					if(readgroupCurrId != fhCurrId)
+					    fhCurrId = advanceToId(readgroupCurrId,
+								   fhSeq1, fhId1, fhQual1, seq_str1, id_str1, qual_str1,
+								   fhSeq2, fhId2, fhQual2, seq_str2, id_str2, qual_str2);
+					// output half-aligned pair as unmapped to fhOut
+					if(readgroupCurrId == fhCurrId) {
+					    fhOut << id_str1 << "\t77\t*\t0\t0\t*\t*\t0\t0\t" << seq_str1 << "\t" << qual_str1 << endl;
+					    fhOut << id_str2 << "\t141\t*\t0\t0\t*\t*\t0\t0\t" << seq_str2 << "\t" << qual_str2 << endl;
+					} else {
+					    cerr << "FATAL ERROR 118: could not get raw read information for id " << readgroupCurrId << ": " << line_str << endl;
+					    exit(118);
+					}
+				    } else {
+					(*(outsam_list[curr_read_group_it->file_index])) << line_str << '\n';
+				    }
+				    curr_read_group_it++;
 				}
 			}
 
@@ -355,6 +553,27 @@ int main (int argc, char * const argv[])
 		
 		
 		
+	}
+
+	// added by M. Stadler, April 13, 2012
+	// close sequence/id/quality files
+	fhSeq1.close();
+	fhId1.close();
+	fhQual1.close();
+	fhOut.close();
+	if(paired) {
+	    fhSeq2.close();
+	    fhId2.close();
+	    fhQual2.close();
+	}
+
+	// added by M. Stadler, Feb 10, 2012
+	// make sure all *.sam_uniq are flushed/closed
+	outsam_list_it = outsam_list.begin();
+	while (outsam_list_it != outsam_list.end()) {
+	    (*outsam_list_it)->close();
+	    (*outsam_list_it)->clear();
+	    outsam_list_it++;
 	}
 	
 	delete [] curr_line;
@@ -437,8 +656,8 @@ int main (int argc, char * const argv[])
 	
 	outsam_list_it = outsam_list.begin();
 	while (outsam_list_it != outsam_list.end()) {
-		(*outsam_list_it)->close();
-		(*outsam_list_it)->clear();
+	        //(*outsam_list_it)->close();
+		//(*outsam_list_it)->clear();
 		delete *outsam_list_it;
 		
 		outsam_list_it++;

@@ -422,6 +422,8 @@ public:
 				        (ebwtFw? &bufa_->qualRev : &bufa_->qual),
 				&bufa_->name,
 				bufa_->color,
+				bufa_->primer,
+				bufa_->trimc,
 				colorExEnds,
 				snpPhred,
 				refs_,
@@ -815,7 +817,7 @@ protected:
 	            bool ebwtFwR,
 	            const ReferenceMap* rmap)
 	{
-		assert_lt(upstreamOff, dnstreamOff);
+		assert(gAllowMateContainment || upstreamOff < dnstreamOff);
 		uint32_t spreadL = rL.bot - rL.top;
 		uint32_t spreadR = rR.bot - rR.top;
 		uint32_t oms = min(spreadL, spreadR) - 1;
@@ -835,6 +837,8 @@ protected:
 				        (ebwtFwL? &bufL->qualRev : &bufL->qual),
 				&bufL->name,
 				bufL->color,
+				bufL->primer,
+				bufL->trimc,
 				colorExEnds,
 				snpPhred,
 				refs_,
@@ -868,6 +872,8 @@ protected:
 				        (ebwtFwR? &bufR->qualRev : &bufR->qual),
 				&bufR->name,
 				bufR->color,
+				bufR->primer,
+				bufR->trimc,
 				colorExEnds,
 				snpPhred,
 				refs_,
@@ -911,9 +917,6 @@ protected:
 	 * (the "anchor" mate) has aligned, look directly at the reference
 	 * sequence for instances where the other mate (the "outstanding"
 	 * mate) aligns such that mating constraint is satisfied.
-	 *
-	 * This function picks up to 'pick' anchors at random from the
-	 * 'offs' array.  It returns the number that it actually picked.
 	 */
 	bool resolveOutstandingInRef(const bool off1,
 	                             const U32Pair& off,
@@ -946,6 +949,10 @@ protected:
 		                        patsrc_->bufb().length());
 		int minins = minInsert_;
 		int maxins = maxInsert_;
+		// Let minins and maxins be the minimum and maximum insert
+		// lengths once we account for the trimming applied to the
+		// mates.  The idea is that the insert constraint placed by
+		// the user applies to the raw reads, not the trimmed reads.
 		if(fw1_) {
 			minins = max<int>(0, minins - patsrc_->bufa().trimmed5);
 			maxins = max<int>(0, maxins - patsrc_->bufa().trimmed5);
@@ -960,8 +967,10 @@ protected:
 			minins = max<int>(0, minins - patsrc_->bufb().trimmed5);
 			maxins = max<int>(0, maxins - patsrc_->bufb().trimmed5);
 		}
+		// Sanity check minins and maxins
 		assert_geq(minins, 0);
 		assert_geq(maxins, 0);
+		assert_geq(maxins, minins);
 		// Don't even try if either of the mates is longer than the
 		// maximum insert size.
 		if((uint32_t)maxins <= max(qlen, alen)) {
@@ -971,15 +980,24 @@ protected:
 		const uint32_t toff = off.second;
 		// Set begin/end to be a range of all reference
 		// positions that are legally permitted to be involved in
-		// the alignment of the outstanding mate.  It's up to the
-		// callee to worry about how to scan these positions.
+		// the alignment of the outstanding mate.
+		//
+		// Note that one of the constraints imposed on which positions
+		// go into this range is that the opposite mate cannot be
+		// contained entirely within the anchor mate, or vice versa.
 		uint32_t begin, end;
-		assert_geq(maxins, minins);
 		uint32_t insDiff = maxins - minins;
 		if(matchRight) {
 			end = toff + maxins;
-			begin = toff + 1;
-			if(qlen < alen) begin += alen-qlen;
+			// Adding 1 disallows the opposite from starting at the
+			// left-hand edge of the anchor mate.
+			begin = toff + (gAllowMateContainment ? 0 : 1);
+			// We can also add a bit more if qlen is less than alen,
+			// since we're requiring that opposite not be contained
+			// within anchor.
+			if(!gAllowMateContainment && qlen < alen) {
+				begin += alen-qlen;
+			}
 			if(end > insDiff + qlen) {
 				begin = max<uint32_t>(begin, end - insDiff - qlen);
 			}
@@ -992,9 +1010,13 @@ protected:
 				begin = toff + alen - maxins;
 			}
 			uint32_t mi = min<uint32_t>(alen, qlen);
-			end = toff + mi - 1;
-			end = min<uint32_t>(end, toff + alen - minins + qlen - 1);
-			if(toff + alen + qlen < (uint32_t)minins + 1) end = 0;
+			if(gAllowMateContainment) {
+				end = toff + alen;
+			} else {
+				end = toff + mi - 1;
+				end = min<uint32_t>(end, toff + alen - minins + qlen - 1);
+				if(toff + alen + qlen < (uint32_t)minins + 1) end = 0;
+			}
 		}
 		// Check if there's not enough space in the range to fit an
 		// alignment for the outstanding mate.
@@ -1007,11 +1029,15 @@ protected:
 		assert_eq(ranges.size(), offs.size());
 		for(size_t i = 0; i < ranges.size(); i++) {
 			Range& r = ranges[i];
+			// Fill in fields that aren't filled in by the RefAligner
 			r.fw = fw;
 			r.cost |= (r.stratum << 14);
 			r.mate1 = !off1;
 			const uint32_t result = offs[i];
-			// Just copy the known range's top and bot for now
+			// NOTE: We have no idea what the BW range delimiting the
+			// opposite hit is, because we were operating entirely in
+			// reference space when we found it.  For now, we just copy
+			// the known range's top and bot for now.
 			r.top = range.top;
 			r.bot = range.bot;
 			bool ebwtLFw = matchRight ? range.ebwt->fw() : true;
@@ -1670,7 +1696,7 @@ protected:
 	            bool ebwtFwR,
 	            const ReferenceMap *rmap)
 	{
-		assert_lt(upstreamOff, dnstreamOff);
+		assert(gAllowMateContainment || upstreamOff < dnstreamOff);
 		uint32_t spreadL = rL.bot - rL.top;
 		uint32_t spreadR = rR.bot - rR.top;
 		uint32_t oms = min(spreadL, spreadR) - 1;
@@ -1690,6 +1716,8 @@ protected:
 				        (ebwtFwL? &bufL->qualRev : &bufL->qual),
 				&bufL->name,
 				bufL->color,
+				bufL->primer,
+				bufL->trimc,
 				colorExEnds,
 				snpPhred,
 				refs_,
@@ -1723,6 +1751,8 @@ protected:
 				        (ebwtFwR? &bufR->qualRev : &bufR->qual),
 				&bufR->name,
 				bufR->color,
+				bufR->primer,
+				bufR->trimc,
 				colorExEnds,
 				snpPhred,
 				refs_,
@@ -1768,6 +1798,8 @@ protected:
 			       (ebwtFw? &buf->qualRev : &buf->qual),
 			&buf->name,
 			buf->color,
+			buf->primer,
+			buf->trimc,
 			colorExEnds,
 			snpPhred,
 			refs_,
@@ -1898,8 +1930,15 @@ protected:
 		uint32_t insDiff = maxins - minins;
 		if(matchRight) {
 			end = toff + maxins;
-			begin = toff + 1;
-			if(qlen < alen) begin += alen-qlen;
+			// Adding 1 disallows the opposite from starting at the
+			// left-hand edge of the anchor mate.
+			begin = toff + (gAllowMateContainment ? 0 : 1);
+			// We can also add a bit more if qlen is less than alen,
+			// since we're requiring that opposite not be contained
+			// within anchor.
+			if(!gAllowMateContainment && qlen < alen) {
+				begin += alen-qlen;
+			}
 			if(end > insDiff + qlen) {
 				begin = max<uint32_t>(begin, end - insDiff - qlen);
 			}
@@ -1912,9 +1951,13 @@ protected:
 				begin = toff + alen - maxins;
 			}
 			uint32_t mi = min<uint32_t>(alen, qlen);
-			end = toff + mi - 1;
-			end = min<uint32_t>(end, toff + alen - minins + qlen - 1);
-			if(toff + alen + qlen < (uint32_t)(minins + 1)) end = 0;
+			if(gAllowMateContainment) {
+				end = toff + alen - 1;
+			} else {
+				end = toff + mi - 1;
+				end = min<uint32_t>(end, toff + alen - minins + qlen - 1);
+				if(toff + alen + qlen < (uint32_t)minins + 1) end = 0;
+			}
 		}
 		// Check if there's not enough space in the range to fit an
 		// alignment for the outstanding mate.

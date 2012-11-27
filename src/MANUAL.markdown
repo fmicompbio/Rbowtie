@@ -1289,8 +1289,9 @@ Print the amount of wall-clock time taken by each phase.
 
 </td><td>
 
-When outputting alignments, number the first base of a reference
-sequence as `<int>`.  Default: 0.
+When outputting alignments in Bowtie format, consider the first base of
+a reference sequence to have offset `<int>`.  This option has no effect
+in [`-S`/`--sam`] mode, since SAM mandates 1-based offsets.  Default: 0.
 
 </td></tr><tr><td id="bowtie-options-quiet">
 
@@ -1342,8 +1343,8 @@ input, without any of the trimming or translation of quality values
 that may have taken place within `bowtie`.  Paired-end reads will be
 written to two parallel files with `_1` and `_2` inserted in the
 filename, e.g., if `<filename>` is `aligned.fq`, the #1 and #2 mates
-that fail to align will be written to `aligned_1.fq` and `aligned_2.fq`
-respectively.
+that align at least once will be written to `aligned_1.fq` and
+`aligned_2.fq` respectively.
 
 </td></tr><tr><td id="bowtie-options-un">
 

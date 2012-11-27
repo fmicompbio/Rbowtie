@@ -274,6 +274,8 @@ int main (int argc, char * const argv[])
 	outfile.close();
 	outfile.clear();
 	
+	cout << "Finished." << endl;
+
 	return 0;
 }
 
