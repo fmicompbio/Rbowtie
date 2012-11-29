@@ -1,0 +1,170 @@
+%\VignetteIndexEntry{An introduction to Rbowtie}
+%\VignetteDepends{}
+%\VignetteKeywords{XXXKexword}
+%\VignettePackage{Rbowtie}
+
+\documentclass[10pt]{article}
+
+\usepackage{times}
+\usepackage{inconsolata}
+%\usepackage[scaled=0.85]{beramono}
+\usepackage{hyperref} % remove to suppress links
+\usepackage[text={7.2in,9in},centering]{geometry}
+
+\newcommand{\Rfunction}[1]{{\texttt{#1}}}
+\newcommand{\Robject}[1]{{\texttt{#1}}}
+\newcommand{\Rpackage}[1]{{\textit{#1}}}
+\newcommand{\Rmethod}[1]{{\texttt{#1}}}
+\newcommand{\Rfunarg}[1]{{\texttt{#1}}}
+\newcommand{\Rclass}[1]{{\textit{#1}}}
+\newcommand{\Rcode}[1]{{\texttt{#1}}}
+
+\newcommand{\software}[1]{\textsf{#1}}
+\newcommand{\R}{\software{R}}
+\newcommand{\Rbowtie}{\Rpackage{Rbowtie}}
+\newcommand{\bam}{\texttt{BAM}}
+\newcommand{\fasta}{\texttt{FASTA}}
+\newcommand{\fastq}{\texttt{FASTQ}}
+
+%original
+%\DefineVerbatimEnvironment{Sinput}{Verbatim}{fontshape=sl}
+%\DefineVerbatimEnvironment{Soutput}{Verbatim}{}
+%\DefineVerbatimEnvironment{Scode}{Verbatim}{fontshape=sl}
+\usepackage{Sweave}
+\DefineVerbatimEnvironment{Sinput}{Verbatim} {xleftmargin=2em}
+\DefineVerbatimEnvironment{Soutput}{Verbatim}{xleftmargin=2em}
+\DefineVerbatimEnvironment{Scode}{Verbatim}{xleftmargin=2em}
+\fvset{listparameters={\setlength{\topsep}{0pt}}}
+\renewenvironment{Schunk}{\vspace{\topsep}}{\vspace{\topsep}}
+
+\title{An Introduction to \Rbowtie{}}
+\author{Anita Lerch, Dimos Gaidatzis and Michael Stadler}
+\date{Modified: November 27, 2012. Compiled: \today}
+
+\begin{document}
+%\bibliographystyle{plain}
+\bibliographystyle{unsrt}
+%\bibliographystyle{plainnat}
+
+
+\maketitle
+
+<<options,echo=FALSE>>=
+options(width=65)
+@
+
+\tableofcontents
+
+\newpage
+
+
+\section{Introduction}
+
+The \Rbowtie{} package provides an R wrapper around the popular \software{bowtie}\cite{bowtie} short read aligner and around \software{SpliceMap}\cite{SpliceMap} a de novo splice junction discovery and alignment tool, which makes use of the \software{bowtie} software package.
+
+The package is used by the \Rpackage{QuasR}\cite{QuasR} bioconductor package to \underline{qu}antify and \underline{a}nnotate \underline{s}hort \underline{r}eads. We recommend to use the \Rpackage{QuasR} package instead of using \Rbowtie{} directly. The \Rpackage{QuasR} package provides a simpler interface then \Rbowtie{} and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.
+
+\section{Preliminaries}
+
+\subsection{Citing \Rbowtie{}}
+If you use \Rbowtie{}\cite{Rbowtie} in your work, you can cite it as follows:
+<<cite, eval=TRUE>>=
+citation("Rbowtie")
+@
+
+\subsection{Installation}
+\label{sec:Installation}
+\Rbowtie{} is a package for the \R{} computing environment and it is assumed that you have already installed \R{}. See the \R{} project at \url{http://www.r-project.org}. To install the latest version of \Rbowtie{}, you will need to be using the latest version of \R{}. \Rbowtie{} is part of the Bioconductor project at \url{http://www.bioconductor.org}. To get \Rbowtie{} together with its dependencies you can use
+<<install, eval=FALSE>>=
+source("http://www.bioconductor.org/biocLite.R")
+biocLite("Rbowtie")
+@
+
+
+\subsection{Loading of \Rbowtie{}}
+In order to run the code examples in this vignette, the \Rbowtie{} library need to be loaded.
+<<loadLibraries, eval=TRUE>>=
+library(Rbowtie)
+@
+
+\subsection{How to get help}
+Most questions about \Rbowtie{} will hopefully be answered by the documentation or references. If you've run into a question which isn't addressed by the documentation, or you've found a conflict between the documentation and software itself, then there is an active support community which can offer help.
+The authors of the package (maintainer: \Schunk{maintainer("Rbowtie")}) always appreciate receiving reports of bugs in the package functions or in the documentation. The same goes for well-considered suggestions for improvements. 
+Any other questions or problems concerning \Rbowtie{} should be sent to the Bioconductor mailing list \url{bioconductor@stat.math.ethz.ch}. To subscribe to the mailing list, see \url{https://stat.ethz.ch/mailman/listinfo/bioconductor}. Please send requests for general assistance and advice to the mailing list rather than to the individual authors. Users posting to the mailing list for the first time should read the helpful posting guide at \url{http://www.bioconductor.org/doc/postingGuide.html}. Note that each function in \Rbowtie{} has it's own help page, e.g. \Rcode{help("bowtie")}. Mailing list etiquette requires that you read the relevant help page carefully before posting a problem to the list.
+
+\section{Example usage for individual \Rbowtie{} functions}
+Please refer to the \Rbowtie{} reference manual or the function documentation (e.g. using \Rcode{?bowtie}) for a complete description of \Rbowtie{} functions. The descriptions provided below are meant to give and overview over all functions and summarize the purpose of each one.
+
+\subsection{Build the reference index with \Rfunction{bowtie\_build}}
+\label{sec:bowtieBuild}
+To be able to align short reads to a genome, an index has to be build first using the function \Rfunction{bowtie\_build}. Information about arguments can be found with the help of the \Rfunction{bowtie\_build\_usage} function or in the manual page \Rcode{?bowtie\_build}.
+<<bowtieBuildUsage, eval=TRUE>>=
+bowtie_build_usage()
+@
+
+\Rcode{refFiles} below is a vector with filenames of the reference sequence in \texttt{FASTA} format, and \Rcode{indexDir} specifies an output directory for the index files that will be generated when calling \Rfunction{bowtie\_build}:
+<<bowtieBuild, eval=TRUE>>=
+refFiles <- dir(system.file(package="Rbowtie", "samples", "refs"), full=TRUE)
+indexDir <- file.path(tempdir(), "refsIndex")
+
+tmp <- bowtie_build(references=refFiles, outdir=indexDir, prefix="index", force=TRUE)
+head(tmp)
+@
+
+\subsection{Create alignment with \Rfunction{bowtie}}
+Information about the arguments supported by the \Rfunction{bowtie} function can be obtained  with the help of the \Rfunction{bowtie\_usage} function or in the manual page \Rcode{?bowtie}.
+<<bowtieBuildUsage, eval=TRUE>>=
+bowtie_usage()
+@
+
+In the example below, \Rcode{readsFiles} is the name of a file containing short reads to be aligned with \Rfunction{bowtie}, and \Rcode{samFiles} specifies the name of the output file with the generated alignments.
+<<bowtie, eval=TRUE>>=
+readsFiles <- system.file(package="Rbowtie", "samples", "reads", "reads.fastq")
+samFiles <- file.path(tempdir(), "alignments.sam")
+
+bowtie(sequences=readsFiles, 
+       index=file.path(indexDir, "index"), 
+       outfile=samFiles, sam=TRUE,
+       best=TRUE, force=TRUE)
+strtrim(readLines(samFiles), 65)
+@
+
+
+\subsection{Create spliced alignment with \Rfunction{SpliceMap}}
+While \Rfunction{bowtie} only generates ungapped alignments, the \Rfunction{SpliceMap} function can be used to generate spliced alignments. \Rfunction{SpliceMap} is itself using \texttt{bowtie}. To use it, it is necessary to create an index of the reference sequence as described in \ref{sec:bowtieBuild}. \Rfunction{SpliceMap} parameters are specified in the form of a named list, which follows closely the configure file format of the original \texttt{SpliceMap} program\cite{SpliceMap}. Be aware that \Rfunction{SpliceMap} can only be used for reads that are at least 50bp long.
+<<SpliceMap, eval=TRUE>>=
+readsFiles <- system.file(package="Rbowtie", "samples", "reads", "reads.fastq")
+refDir <- system.file(package="Rbowtie", "samples", "refs", "chr1.fa")
+indexDir <- file.path(tempdir(), "refsIndex")
+samFiles <- file.path(tempdir(), "splicedAlignments.sam")
+
+cfg <- list(genome_dir=refDir,
+            reads_list1=readsFiles,
+            read_format="FASTQ",
+            quality_format="phred-33",
+            outfile=samFiles,
+            temp_path=tempdir(),
+            max_intron=400000,
+            min_intron=20000,
+            max_multi_hit=10,
+            seed_mismatch=1,
+            read_mismatch=2,
+            num_chromosome_together=2,
+            bowtie_base_dir=file.path(indexDir, "index"),
+            num_threads=4,
+            try_hard="yes",
+            selectSingleHit=TRUE)
+res <- SpliceMap(cfg)
+res
+strtrim(readLines(samFiles), 65)
+@
+
+\section{Session information}
+The output in this vignette was produced under:
+<<sessionInfo>>=
+sessionInfo()
+@
+
+\bibliography{Rbowtie-refs}
+
+\end{document}

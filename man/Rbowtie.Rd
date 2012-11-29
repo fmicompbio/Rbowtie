@@ -22,8 +22,6 @@ outfile, force = FALSE, strict = TRUE)
 bowtie_build_usage()
 
 bowtie_usage()
-
-
 }
 
 \arguments{
@@ -133,8 +131,7 @@ head(tmp2)
 
 
 ## Alignments
-reads <- system.file(package="Rbowtie", "samples", "reads",
-"reads.fastq")
+reads <- system.file(package="Rbowtie", "samples", "reads", "reads.fastq")
 tmp <- bowtie(sequences=reads, index=file.path(td, "index", "index"))
 tmp
 bowtie(sequences=reads, index=file.path(td, "index", "index"),
@@ -144,8 +141,6 @@ readLines(file.path(td, "alignments.txt"))
 bowtie(sequences=list("TGGGTGGGGTATTCTAGAAATTTCTATTAATCCT",
                       "TCTGTTCAAGTCAGATGGTCACCAATCTGAAGAC"),
 index=file.path(td, "index", "index"), type="paired", c=TRUE)
-
-
 }
 
 \keyword{programming}

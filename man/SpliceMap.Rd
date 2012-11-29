@@ -187,23 +187,34 @@ Michael Stadler
 }
 
 \examples{
-\dontrun{
-cfg <- list(genome_dir="/genomes/hg19",
-            reads_list1=c("input.fastq"),
+## Building a bowtie index
+refDir <- system.file(package="Rbowtie", "samples", "refs")
+indexDir <- file.path(tempdir(), "refsIndex")
+
+tmp <- bowtie_build(references=dir(refDir, full=TRUE), outdir=indexDir, prefix="index", force=TRUE)
+
+## Alignments
+readsFiles <- system.file(package="Rbowtie", "samples", "reads", "reads.fastq")
+samFiles <- file.path(tempdir(), "splicedAlignments.sam")
+
+cfg <- list(genome_dir=refDir,
+            reads_list1=readsFiles,
             read_format="FASTQ",
             quality_format="phred-33",
-            temp_path="./test",
+            outfile=samFiles,
+            temp_path=tempdir(),
             max_intron=400000,
             min_intron=20000,
             max_multi_hit=10,
             seed_mismatch=1,
             read_mismatch=2,
             num_chromosome_together=2,
-            bowtie_base_dir="/genomes/hg19/bowtieIndex/bowtieIndex",
+            bowtie_base_dir=file.path(indexDir, "index"),
             num_threads=4,
-            try_hard="yes")
+            try_hard="yes",
+            selectSingleHit=TRUE)
+            
 res <- SpliceMap(cfg)
-}
 }
 
 \keyword{programming}

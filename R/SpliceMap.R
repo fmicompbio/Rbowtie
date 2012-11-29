@@ -220,7 +220,7 @@ SpliceMap <- function(cfg) {
         lst[["genome_files"]] <- normalizePath(lst[["genome_dir"]], winslash="/")
     } else {
         # 'genome_dir' is a directory
-        chrs <- normalizePath(list.files(lst[["genome_dir"]], pattern="\\.fa$|\\.fna$|\\.fasta$", full.names = TRUE))
+        chrs <- normalizePath(list.files(lst[["genome_dir"]], pattern="\\.fa$|\\.fna$|\\.fasta$", full.names = TRUE), winslash="/")
         if(length(chrs) == 0)
             stop(sprintf("No chromosome files found in '%s' using pattern '\\.fa$|\\.fna$|\\.fasta$'", lst[["genome_dir"]]), winslash="/")
         lst[["genome_files"]] <- paste(chrs, collapse="\n")

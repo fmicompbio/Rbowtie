@@ -1,11 +1,12 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.0
+Version: 0.99.0
 Date: 2010-12-17
-Author: Florian Hahne
-Maintainer: Anita Lerch <anita.lerch@fmi.ch>
+Author: Florian Hahne, Anita Lerch, Michael B Stadler
+Maintainer: Michael Stadler <michael.stadler@fmi.ch>
 Suggests: parallel
-Description: This package provides an R wrapper around the popular bowtie short read aligner.
+Description: This package provides an R wrapper around the popular bowtie short read aligner and around SpliceMap, a de novo splice junction discovery and alignment tool.
 License: LGPL
 LazyLoad: yes
+biocViews: HighThroughputSequencing

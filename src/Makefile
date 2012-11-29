@@ -250,4 +250,6 @@ clean:
 	bowtie_prof \
 	$(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX) bowtie_prof) \
 	bowtie-src.zip bowtie-bin.zip
+	rm -f .bowtie-build.md5 .bowtie.md5
+	rm -f SpliceMap/*.o SpliceMap/SpliceMap SpliceMap/amalgamateSAM SpliceMap/getSpliceMapUnmapped SpliceMap/fuseReorder SpliceMap/runSpliceMap_QuasR SpliceMap/sortsam
 	rm -f core.* ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/getSpliceMapUnmapped ../inst/fuseReorder ../inst/runSpliceMap_QuasR ../inst/sortsam

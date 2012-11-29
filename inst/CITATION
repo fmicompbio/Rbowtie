@@ -44,7 +44,7 @@ citEntry(entry="unpublished",
 	 #journal="",
 	 #year=,
 	 note=vers,
-	 textVersion=" Hahne F, Lerch A,Stadler MB. Rbowtie: An R wrapper for bowtie and SpliceMap short read aligners. (unpublished)"
+	 textVersion=" Hahne F, Lerch A, Stadler MB. Rbowtie: An R wrapper for bowtie and SpliceMap short read aligners. (unpublished)"
 )
 
 citFooter("This free open-source software implements academic
