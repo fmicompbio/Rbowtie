@@ -3,6 +3,7 @@
 \alias{bowtie}
 \alias{bowtie_build_usage}
 \alias{bowtie_usage}
+\alias{bowtie_version}
 
 \title{
 Interface to bowtie
@@ -10,6 +11,8 @@ Interface to bowtie
 
 \description{
 The following functions can be used to call the bowtie and bowtie-build binaries.
+
+We recommend to use the \code{\link[QuasR]{QuasR}} package instead of using \code{bowtie} and \code{bowtie_build} directly. The \code{\link[QuasR]{QuasR}} package provides a simpler interface then Rbowtie and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.
 }
 
 \usage{
@@ -22,6 +25,8 @@ outfile, force = FALSE, strict = TRUE)
 bowtie_build_usage()
 
 bowtie_usage()
+
+bowtie_version()
 }
 
 \arguments{
@@ -98,6 +103,7 @@ bowtie_usage()
   \code{bowtie_usage()} and \code{bowtie_build_usage()} return the usage
   information for the respective binaries.
   
+  \code{bowtie_version()} return the bowtie versions information.
 }
 
 \references{

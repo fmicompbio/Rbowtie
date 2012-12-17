@@ -556,9 +556,9 @@ int main (int argc, char * const argv[])
 		while (!read_index_tfile[0].eof()) { 
 			
 			
-			string full_line_read[2] = ""; 
-			string full_line_qual[2] = ""; 
-			string full_line_name[2] = ""; 
+			string full_line_read[2] = { "", "" }; 
+			string full_line_qual[2] = { "", "" }; 
+			string full_line_name[2] = { "", "" }; 
 			
 			
 			

@@ -85,6 +85,11 @@ bowtie_build_usage <- function()
 bowtie_usage <- function()
     print(bowtie("dummy", "dummy", force=TRUE, usage=TRUE, strict=FALSE))
 
+bowtie_version <- function(){
+    print(.bowtieBin(bin="bowtie", args="--version"))
+}
+
+
 
 ## A helper function to create a scalar of command line arguments from a named list.
 ## Logical list entries are being interpreted as flags, all other entries are being
