@@ -303,7 +303,7 @@ static inline int64_t fileSize(const char* name) {
 }
 
 // Forward declarations for Ebwt class
-class SideLocus;
+struct SideLocus;
 template<typename TStr> class EbwtSearchParams;
 
 /**
