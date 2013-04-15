@@ -192,14 +192,11 @@ void reverseRefRecords(const vector<RefRecord>& src,
 			}
 			if(src[i].off) cur.push_back(RefRecord(src[i].off, 0, first));
 		}
-		bool mergedLast;
 		for(int i = 0; i < (int)cur.size(); i++) {
-			mergedLast = false;
 			assert(cur[i].off == 0 || cur[i].len == 0);
 			if(i < (int)cur.size()-1 && cur[i].off != 0 && !cur[i+1].first) {
 				dst.push_back(RefRecord(cur[i].off, cur[i+1].len, cur[i].first));
 				i++;
-				mergedLast = true;
 			} else {
 				dst.push_back(cur[i]);
 			}
@@ -240,7 +237,6 @@ fastaRefReadSizes(vector<FileBuf*>& in,
 {
 	uint32_t unambigTot = 0;
 	uint32_t bothTot = 0;
-	RefReadInParams rpcp = rparms;
 	assert_gt(in.size(), 0);
 	uint32_t both = 0, unambig = 0;
 	// For each input istream

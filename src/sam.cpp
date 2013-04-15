@@ -25,6 +25,7 @@ void SAMHitSink::appendHeaders(OutFileBuf& os,
                                ReferenceMap *rmap,
                                const uint32_t* plen,
                                bool fullRef,
+                               bool noQnameTrunc,
                                const char *cmdline,
                                const char *rgline)
 {
@@ -62,18 +63,19 @@ void SAMHitSink::appendAligned(ostream& ss,
                                ReferenceMap *rmap,
                                AnnotationMap *amap,
                                bool fullRef,
+                               bool noQnameTrunc,
                                int offBase)
 {
 	// QNAME
 	if(h.mate > 0) {
 		// truncate final 2 chars
 		for(int i = 0; i < (int)seqan::length(h.patName)-2; i++) {
-			if(isspace((int)h.patName[i])) break;
+			if(!noQnameTrunc && isspace((int)h.patName[i])) break;
 			ss << h.patName[i];
 		}
 	} else {
 		for(int i = 0; i < (int)seqan::length(h.patName); i++) {
-			if(isspace((int)h.patName[i])) break;
+			if(!noQnameTrunc && isspace((int)h.patName[i])) break;
 			ss << h.patName[i];
 		}
 	}
@@ -147,12 +149,12 @@ void SAMHitSink::appendAligned(ostream& ss,
 	int run = 0;
 	ss << "\tMD:Z:";
 	const FixedBitset<1024> *mms = &h.mms;
-	const String<Dna5>* pat = &h.patSeq;
+	ASSERT_ONLY(const String<Dna5>* pat = &h.patSeq);
 	const vector<char>* refcs = &h.refcs;
 	if(h.color && false) {
 		// Disabled: print MD:Z string w/r/t to colors, not letters
 		mms = &h.cmms;
-		pat = &h.colSeq;
+		ASSERT_ONLY(pat = &h.colSeq);
 		assert_eq(length(h.colSeq), len+1);
 		len = length(h.colSeq);
 		refcs = &h.crefcs;
@@ -212,7 +214,7 @@ void SAMHitSink::appendAligned(ostream& ss,
  * Report a verbose, human-readable alignment to the appropriate
  * output stream.
  */
-void SAMHitSink::reportHit(const Hit& h, int mapq, int xms) {
+void SAMHitSink::reportSamHit(const Hit& h, int mapq, int xms) {
 	if(xms == 0) {
 		// Otherwise, this is actually a sampled read and belongs in
 		// the same category as maxed reads
@@ -229,9 +231,12 @@ void SAMHitSink::reportHit(const Hit& h, int mapq, int xms) {
 /**
  * Report a batch of hits from a vector, perhaps subsetting it.
  */
-void SAMHitSink::reportHits(vector<Hit>& hs,
-                            size_t start, size_t end,
-                            int mapq, int xms)
+void SAMHitSink::reportSamHits(
+	vector<Hit>& hs,
+    size_t start,
+    size_t end,
+    int mapq,
+    int xms)
 {
 	assert_geq(end, start);
 	if(end-start == 0) return;
@@ -275,10 +280,14 @@ void SAMHitSink::reportUnOrMax(PatternSourcePerThread& p,
 	if(paired) {
 		// truncate final 2 chars
 		for(int i = 0; i < (int)seqan::length(p.bufa().name)-2; i++) {
+			if(!noQnameTrunc_ && isspace((int)p.bufa().name[i])) break;
 			ss << p.bufa().name[i];
 		}
 	} else {
-		ss << p.bufa().name;
+		for(int i = 0; i < (int)seqan::length(p.bufa().name); i++) {
+			if(!noQnameTrunc_ && isspace((int)p.bufa().name[i])) break;
+			ss << p.bufa().name[i];
+		}
 	}
 	ss << "\t"
 	   << (SAM_FLAG_UNMAPPED | (paired ? (SAM_FLAG_PAIRED | SAM_FLAG_FIRST_IN_PAIR | SAM_FLAG_MATE_UNMAPPED) : 0)) << "\t*"
@@ -338,9 +347,10 @@ void SAMHitSink::append(ostream& ss,
                         ReferenceMap *rmap,
                         AnnotationMap *amap,
                         bool fullRef,
+                        bool noQnameTrunc,
                         int offBase)
 {
-	appendAligned(ss, h, mapq, xms, refnames, rmap, amap, fullRef, offBase);
+	appendAligned(ss, h, mapq, xms, refnames, rmap, amap, fullRef, noQnameTrunc, offBase);
 }
 
 /**
@@ -374,7 +384,7 @@ void SAMHitSink::reportMaxed(vector<Hit>& hs, PatternSourcePerThread& p) {
 				int strat = min(hs[i].stratum, hs[i+1].stratum);
 				if(strat == bestStratum) {
 					if(num == r) {
-						reportHits(hs, i, i+2, 0, hs.size()/2+1);
+						reportSamHits(hs, i, i+2, 0, hs.size()/2+1);
 						break;
 					}
 					num++;
@@ -389,7 +399,7 @@ void SAMHitSink::reportMaxed(vector<Hit>& hs, PatternSourcePerThread& p) {
 			}
 			assert_leq(num, hs.size());
 			uint32_t r = rand.nextU32() % num;
-			reportHit(hs[r], /*MAPQ*/0, /*XM:I*/hs.size()+1);
+			reportSamHit(hs[r], /*MAPQ*/0, /*XM:I*/hs.size()+1);
 		}
 	} else {
 		reportUnOrMax(p, &hs, false);

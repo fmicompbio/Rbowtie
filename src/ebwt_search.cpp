@@ -8,9 +8,6 @@
 #include <seqan/find.h>
 #include <getopt.h>
 #include <vector>
-#ifdef BOWTIE_PTHREADS
-#include <pthread.h>
-#endif
 #include "alphabet.h"
 #include "assert_helpers.h"
 #include "endian_swap.h"
@@ -88,7 +85,6 @@ static bool strata;     // true -> don't stop at stratum boundaries
 static bool refOut;     // if true, alignments go to per-ref files
 static int partitionSz; // output a partitioning key in first field
 static bool noMaqRound; // true -> don't round quals to nearest 10 like maq
-static bool useSpinlock;  // false -> don't use of spinlocks even if they're #defines
 static bool fileParallel; // separate threads read separate input files in parallel
 static bool useShmem;     // use shared memory to hold the index
 static bool useMm;        // use memory-mapped files to hold the index
@@ -129,6 +125,7 @@ static size_t fastaContFreq;
 static bool hadoopOut; // print Hadoop status and summary messages
 static bool fuzzy;
 static bool fullRef;
+static bool samNoQnameTrunc; // don't truncate QNAME field at first whitespace
 static bool samNoHead; // don't print any header lines in SAM output
 static bool samNoSQ;   // don't print @SQ header lines
 bool color;     // true -> inputs are colorspace
@@ -199,7 +196,6 @@ static void resetOptions() {
 	refOut					= false; // if true, alignments go to per-ref files
 	partitionSz				= 0;     // output a partitioning key in first field
 	noMaqRound				= false; // true -> don't round quals to nearest 10 like maq
-	useSpinlock				= true;  // false -> don't use of spinlocks even if they're #defines
 	fileParallel			= false; // separate threads read separate input files in parallel
 	useShmem				= false; // use shared memory to hold the index
 	useMm					= false; // use memory-mapped files to hold the index
@@ -240,6 +236,7 @@ static void resetOptions() {
 	hadoopOut				= false; // print Hadoop status and summary messages
 	fuzzy					= false; // reads will have alternate basecalls w/ qualities
 	fullRef					= false; // print entire reference name instead of just up to 1st space
+	samNoQnameTrunc         = false; // don't truncate at first whitespace?
 	samNoHead				= false; // don't print any header lines in SAM output
 	samNoSQ					= false; // don't print @SQ header lines
 	color					= false; // don't align in colorspace by default
@@ -258,7 +255,6 @@ static void resetOptions() {
 	qualities2.clear();
 	gAllowMateContainment	= false; // true -> alignments where one mate lies inside the other are valid
 	gReportColorPrimer		= false; // true -> print flag with trimmed color primer and downstream color
-	MUTEX_INIT(gLock);
 }
 
 // mating constraints
@@ -293,7 +289,6 @@ enum {
 	ARG_PARTITION,
 	ARG_integerQuals,
 	ARG_NOMAQROUND,
-	ARG_USE_SPINLOCK,
 	ARG_FILEPAR,
 	ARG_SHMEM,
 	ARG_MM,
@@ -331,6 +326,7 @@ enum {
 	ARG_USAGE,
 	ARG_SNPPHRED,
 	ARG_SNPFRAC,
+	ARG_SAM_NO_QNAME_TRUNC,
 	ARG_SAM_NOHEAD,
 	ARG_SAM_NOSQ,
 	ARG_SAM_RG,
@@ -398,7 +394,6 @@ static struct option long_options[] = {
 	{(char*)"phased",       no_argument,       0,            'z'},
 	{(char*)"refout",       no_argument,       0,            ARG_REFOUT},
 	{(char*)"partition",    required_argument, 0,            ARG_PARTITION},
-	{(char*)"nospin",       no_argument,       0,            ARG_USE_SPINLOCK},
 	{(char*)"stateful",     no_argument,       0,            ARG_STATEFUL},
 	{(char*)"prewidth",     required_argument, 0,            ARG_PREFETCH_WIDTH},
 	{(char*)"ff",           no_argument,       0,            ARG_FF},
@@ -437,6 +432,7 @@ static struct option long_options[] = {
 	{(char*)"fullref",      no_argument,       0,            ARG_FULLREF},
 	{(char*)"usage",        no_argument,       0,            ARG_USAGE},
 	{(char*)"sam",          no_argument,       0,            'S'},
+	{(char*)"sam-no-qname-trunc", no_argument, 0,            ARG_SAM_NO_QNAME_TRUNC},
 	{(char*)"sam-nohead",   no_argument,       0,            ARG_SAM_NOHEAD},
 	{(char*)"sam-nosq",     no_argument,       0,            ARG_SAM_NOSQ},
 	{(char*)"sam-noSQ",     no_argument,       0,            ARG_SAM_NOSQ},
@@ -537,9 +533,7 @@ static void printUsage(ostream& out) {
 	    << "  --sam-RG <text>    add <text> (usually \"lab=value\") to @RG line of SAM header" << endl
 	    << "Performance:" << endl
 	    << "  -o/--offrate <int> override offrate of index; must be >= index's offrate" << endl
-#ifdef BOWTIE_PTHREADS
 	    << "  -p/--threads <int> number of alignment threads to launch (default: 1)" << endl
-#endif
 #ifdef BOWTIE_MM
 	    << "  --mm               use memory-mapped I/O for index; many 'bowtie's can share" << endl
 #endif
@@ -674,7 +668,6 @@ static void parseOptions(int argc, const char **argv) {
 			case ARG_NOOUT: outType = OUTPUT_NONE; break;
 			case ARG_REFMAP: refMapFile = optarg; break;
 			case ARG_ANNOTMAP: annotMapFile = optarg; break;
-			case ARG_USE_SPINLOCK: useSpinlock = false; break;
 			case ARG_SHMEM: useShmem = true; break;
 			case ARG_COLOR_SEQ: colorSeq = true; break;
 			case ARG_COLOR_QUAL: colorQual = true; break;
@@ -771,7 +764,7 @@ static void parseOptions(int argc, const char **argv) {
 				mixedThresh = (uint32_t)parseInt(0, "-x arg must be at least 0");
 				break;
 			case ARG_MIXED_ATTEMPTS:
-				mixedAttemptLim = (uint32_t)parseInt(1, "--mixatt arg must be at least 1");
+				mixedAttemptLim = (uint32_t)parseInt(1, "--pairtries arg must be at least 1");
 				break;
 			case ARG_CACHE_LIM:
 				cacheLimit = (uint32_t)parseInt(1, "--cachelim arg must be at least 1");
@@ -784,19 +777,9 @@ static void parseOptions(int argc, const char **argv) {
 				dontReconcileMates = true;
 				break;
 			case 'p':
-#ifndef BOWTIE_PTHREADS
-				cout << "-p/--threads is disabled because bowtie was not compiled with pthreads support. Set to '-p 1'." << endl;
-#endif
 				nthreads = parseInt(1, "-p/--threads arg must be at least 1");
-#ifndef BOWTIE_PTHREADS
-				nthreads = 1;
-#endif
 				break;
 			case ARG_FILEPAR:
-#ifndef BOWTIE_PTHREADS
-				cerr << "--filepar is disabled because bowtie was not compiled with pthreads support" << endl;
-				throw 1;
-#endif
 				fileParallel = true;
 				break;
 			case 'v':
@@ -830,6 +813,7 @@ static void parseOptions(int argc, const char **argv) {
 			case ARG_NO_RC: norc = true; break;
 			case ARG_STATS: stats = true; break;
 			case ARG_PEV2: useV1 = false; break;
+			case ARG_SAM_NO_QNAME_TRUNC: samNoQnameTrunc = true; break;
 			case ARG_SAM_NOHEAD: samNoHead = true; break;
 			case ARG_SAM_NOSQ: samNoSQ = true; break;
 			case ARG_SAM_RG: {
@@ -1089,24 +1073,12 @@ static inline void finishReadWithHitmask(PatternSourcePerThread* p,
 	name.data_begin += 0; /* suppress "unused" compiler warning */ \
 	uint32_t      patid  = p->patid();
 
-#ifdef BOWTIE_PTHREADS
 #define WORKER_EXIT() \
 	patsrcFact->destroy(patsrc); \
 	delete patsrcFact; \
 	sinkFact->destroy(sink); \
 	delete sinkFact; \
-	if(tid > 0) { \
-		pthread_exit(NULL); \
-	} \
-	return NULL;
-#else
-#define WORKER_EXIT() \
-	patsrcFact->destroy(patsrc); \
-	delete patsrcFact; \
-	sinkFact->destroy(sink); \
-	delete sinkFact; \
-	return NULL;
-#endif
+	return;
 
 #ifdef CHUD_PROFILING
 #define CHUD_START() chudStartRemotePerfMonitor("Bowtie");
@@ -1174,7 +1146,7 @@ static HitSink*               exactSearch_sink;
 static Ebwt<String<Dna> >*    exactSearch_ebwt;
 static vector<String<Dna5> >* exactSearch_os;
 static BitPairReference*      exactSearch_refs;
-static void *exactSearchWorker(void *vp) {
+static void exactSearchWorker(void *vp) {
 	int tid = *((int*)vp);
 	PairedPatternSource& _patsrc = *exactSearch_patsrc;
 	HitSink& _sink               = *exactSearch_sink;
@@ -1218,7 +1190,7 @@ static void *exactSearchWorker(void *vp) {
 /**
  * A statefulness-aware worker driver.  Uses UnpairedExactAlignerV1.
  */
-static void *exactSearchWorkerStateful(void *vp) {
+static void exactSearchWorkerStateful(void *vp) {
 	int tid = *((int*)vp);
 	PairedPatternSource& _patsrc = *exactSearch_patsrc;
 	HitSink& _sink               = *exactSearch_sink;
@@ -1296,10 +1268,7 @@ static void *exactSearchWorkerStateful(void *vp) {
 	delete patsrcFact;
 	delete sinkFact;
 	delete pool;
-#ifdef BOWTIE_PTHREADS
-	if(tid > 0) pthread_exit(NULL);
-#endif
-	return NULL;
+	return;
 }
 
 #define SET_A_FW(bt, p, params) \
@@ -1314,10 +1283,6 @@ static void *exactSearchWorkerStateful(void *vp) {
 #define SET_B_RC(bt, p, params) \
 	bt.setQuery(&p->bufb().patRc, &p->bufb().qualRev, &p->bufb().name); \
 	params.setFw(false);
-
-#ifdef BOWTIE_PTHREADS
-#define PTHREAD_ATTRS (PTHREAD_CREATE_JOINABLE | PTHREAD_CREATE_DETACHED)
-#endif
 
 /**
  * Search through a single (forward) Ebwt index for exact end-to-end
@@ -1350,33 +1315,25 @@ static void exactSearch(PairedPatternSource& _patsrc,
 	}
 	exactSearch_refs   = refs;
 
-#ifdef BOWTIE_PTHREADS
-	AutoArray<pthread_t> threads(nthreads-1);
-	AutoArray<int> tids(nthreads-1);
-#endif
+	AutoArray<tthread::thread*> threads(nthreads);
+	AutoArray<int> tids(nthreads);
+
 	CHUD_START();
 	{
 		Timer _t(cerr, "Time for 0-mismatch search: ", timing);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) {
+
+		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i+1;
 			if(stateful) {
-				createThread(&threads[i],
-				             exactSearchWorkerStateful,
-				             (void *)&tids[i]);
+                                threads[i] = new tthread::thread(exactSearchWorkerStateful, (void*)&tids[i]);
 			} else {
-				createThread(&threads[i],
-				             exactSearchWorker,
-				             (void *)&tids[i]);
+                                threads[i] = new tthread::thread(exactSearchWorker, (void*)&tids[i]);
 			}
 		}
-#endif
-		int tmp = 0;
-		if(stateful) exactSearchWorkerStateful((void*)&tmp);
-		else         exactSearchWorker((void*)&tmp);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) joinThread(threads[i]);
-#endif
+
+		for(int i = 0; i < nthreads; i++) 
+                    threads[i]->join();
+
 	}
 	if(refs != NULL) delete refs;
 }
@@ -1402,7 +1359,7 @@ static BitPairReference*              mismatchSearch_refs;
 /**
  * A statefulness-aware worker driver.  Uses Unpaired/Paired1mmAlignerV1.
  */
-static void *mismatchSearchWorkerFullStateful(void *vp) {
+static void mismatchSearchWorkerFullStateful(void *vp) {
 	int tid = *((int*)vp);
 	PairedPatternSource&   _patsrc = *mismatchSearch_patsrc;
 	HitSink&               _sink   = *mismatchSearch_sink;
@@ -1481,13 +1438,10 @@ static void *mismatchSearchWorkerFullStateful(void *vp) {
 	delete patsrcFact;
 	delete sinkFact;
 	delete pool;
-#ifdef BOWTIE_PTHREADS
-	if(tid > 0) pthread_exit(NULL);
-#endif
-	return NULL;
+	return;
 }
 
-static void* mismatchSearchWorkerFull(void *vp){
+static void mismatchSearchWorkerFull(void *vp){
 	int tid = *((int*)vp);
 	PairedPatternSource&   _patsrc   = *mismatchSearch_patsrc;
 	HitSink&               _sink     = *mismatchSearch_sink;
@@ -1576,31 +1530,25 @@ static void mismatchSearchFull(PairedPatternSource& _patsrc,
 	}
 	mismatchSearch_refs = refs;
 
-#ifdef BOWTIE_PTHREADS
-	// Allocate structures for threads
-	AutoArray<pthread_t> threads(nthreads-1);
-	AutoArray<int> tids(nthreads-1);
-#endif
+	AutoArray<tthread::thread*> threads(nthreads);
+	AutoArray<int> tids(nthreads);
+
     CHUD_START();
     {
 		Timer _t(cerr, "Time for 1-mismatch full-index search: ", timing);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) {
+
+		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i+1;
 			if(stateful)
-				createThread(&threads[i], mismatchSearchWorkerFullStateful, (void *)&tids[i]);
+                                threads[i] = new tthread::thread(mismatchSearchWorkerFullStateful, (void*)&tids[i]);
 			else
-				createThread(&threads[i], mismatchSearchWorkerFull, (void *)&tids[i]);
+                                threads[i] = new tthread::thread(mismatchSearchWorkerFull, (void*)&tids[i]);
 		}
-#endif
-		// Go to town
-		int tmp = 0;
-		if(stateful) mismatchSearchWorkerFullStateful((void*)&tmp);
-		else         mismatchSearchWorkerFull((void*)&tmp);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) joinThread(threads[i]);
-#endif
-	}
+
+		for(int i = 0; i < nthreads; i++) 
+                    threads[i]->join();
+
+    }
 	if(refs != NULL) delete refs;
 }
 
@@ -1706,7 +1654,7 @@ static BitPairReference*              twoOrThreeMismatchSearch_refs;
 /**
  * A statefulness-aware worker driver.  Uses UnpairedExactAlignerV1.
  */
-static void *twoOrThreeMismatchSearchWorkerStateful(void *vp) {
+static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	int tid = *((int*)vp);
 	PairedPatternSource&   _patsrc = *twoOrThreeMismatchSearch_patsrc;
 	HitSink&               _sink   = *twoOrThreeMismatchSearch_sink;
@@ -1788,13 +1736,10 @@ static void *twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	delete patsrcFact;
 	delete sinkFact;
 	delete pool;
-#ifdef BOWTIE_PTHREADS
-	if(tid > 0) pthread_exit(NULL);
-#endif
-	return NULL;
+	return;
 }
 
-static void* twoOrThreeMismatchSearchWorkerFull(void *vp) {
+static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 	TWOTHREE_WORKER_SETUP();
 	Ebwt<String<Dna> >& ebwtFw = *twoOrThreeMismatchSearch_ebwtFw;
 	Ebwt<String<Dna> >& ebwtBw = *twoOrThreeMismatchSearch_ebwtBw;
@@ -1916,28 +1861,22 @@ static void twoOrThreeMismatchSearchFull(
 	twoOrThreeMismatchSearch_hitMask  = NULL;
 	twoOrThreeMismatchSearch_two      = two;
 
-#ifdef BOWTIE_PTHREADS
-	AutoArray<pthread_t> threads(nthreads-1);
-	AutoArray<int> tids(nthreads-1);
-#endif
-    CHUD_START();
+	AutoArray<tthread::thread*> threads(nthreads);
+	AutoArray<int> tids(nthreads);
+
+        CHUD_START();
     {
 		Timer _t(cerr, "End-to-end 2/3-mismatch full-index search: ", timing);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) {
+		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i+1;
 			if(stateful)
-				createThread(&threads[i], twoOrThreeMismatchSearchWorkerStateful, (void *)&tids[i]);
+                            threads[i] = new tthread::thread(twoOrThreeMismatchSearchWorkerStateful, (void*)&tids[i]);
 			else
-				createThread(&threads[i], twoOrThreeMismatchSearchWorkerFull, (void *)&tids[i]);
+                            threads[i] = new tthread::thread(twoOrThreeMismatchSearchWorkerFull, (void *)&tids[i]);
 		}
-#endif
-		int tmp = 0;
-		if(stateful) twoOrThreeMismatchSearchWorkerStateful((void*)&tmp);
-		else         twoOrThreeMismatchSearchWorkerFull((void*)&tmp);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) joinThread(threads[i]);
-#endif
+
+		for(int i = 0; i < nthreads; i++) 
+                    threads[i]->join();
     }
 	if(refs != NULL) delete refs;
 	return;
@@ -1972,7 +1911,7 @@ static BitPairReference*        seededQualSearch_refs;
 	        true,        /* read is forward */ \
 	        true);       /* index is forward */
 
-static void* seededQualSearchWorkerFull(void *vp) {
+static void seededQualSearchWorkerFull(void *vp) {
 	SEEDEDQUAL_WORKER_SETUP();
 	Ebwt<String<Dna> >& ebwtFw = *seededQualSearch_ebwtFw;
 	Ebwt<String<Dna> >& ebwtBw = *seededQualSearch_ebwtBw;
@@ -2149,7 +2088,7 @@ static void* seededQualSearchWorkerFull(void *vp) {
 	WORKER_EXIT();
 }
 
-static void* seededQualSearchWorkerFullStateful(void *vp) {
+static void seededQualSearchWorkerFullStateful(void *vp) {
 	int tid = *((int*)vp);
 	PairedPatternSource&     _patsrc    = *seededQualSearch_patsrc;
 	HitSink&                 _sink      = *seededQualSearch_sink;
@@ -2247,12 +2186,7 @@ static void* seededQualSearchWorkerFullStateful(void *vp) {
 	delete patsrcFact;
 	delete sinkFact;
 	delete pool;
-#ifdef BOWTIE_PTHREADS
-	if(tid > 0) {
-		pthread_exit(NULL);
-	}
-#endif
-	return NULL;
+	return;
 }
 
 /**
@@ -2305,10 +2239,8 @@ static void seededQualCutoffSearchFull(
 	}
 	seededQualSearch_refs = refs;
 
-#ifdef BOWTIE_PTHREADS
-	AutoArray<pthread_t> threads(nthreads-1);
-	AutoArray<int> tids(nthreads-1);
-#endif
+	AutoArray<tthread::thread*> threads(nthreads);
+	AutoArray<int> tids(nthreads);
 
 	SWITCH_TO_FW_INDEX();
 	assert(!ebwtBw.isInMemory());
@@ -2321,23 +2253,18 @@ static void seededQualCutoffSearchFull(
 	{
 		// Phase 1: Consider cases 1R and 2R
 		Timer _t(cerr, "Seeded quality full-index search: ", timing);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) {
+
+		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i+1;
-			if(stateful) createThread(&threads[i],
-			                          seededQualSearchWorkerFullStateful,
-			                          (void*)&tids[i]);
-			else         createThread(&threads[i],
-			                          seededQualSearchWorkerFull,
-			                          (void*)&tids[i]);
+			if(stateful)
+                                threads[i] = new tthread::thread(seededQualSearchWorkerFullStateful, (void*)&tids[i]);
+			else
+                                threads[i] = new tthread::thread(seededQualSearchWorkerFull, (void*)&tids[i]);
 		}
-#endif
-		int tmp = 0;
-		if(stateful) seededQualSearchWorkerFullStateful((void*)&tmp);
-		else         seededQualSearchWorkerFull((void*)&tmp);
-#ifdef BOWTIE_PTHREADS
-		for(int i = 0; i < nthreads-1; i++) joinThread(threads[i]);
-#endif
+
+		for(int i = 0; i < nthreads; i++) 
+                    threads[i]->join();
+
 	}
 	if(refs != NULL) {
 		delete refs;
@@ -2359,7 +2286,6 @@ patsrcFromStrings(int format,
 		case FASTA:
 			return new FastaPatternSource (seed, reads, quals, color,
 			                               randomizeQuals,
-			                               useSpinlock,
 			                               patDumpfile, verbose,
 			                               trim3, trim5,
 			                               solexaQuals, phred64Quals,
@@ -2369,20 +2295,17 @@ patsrcFromStrings(int format,
 			return new FastaContinuousPatternSource (
 			                               seed, reads, fastaContLen,
 			                               fastaContFreq,
-			                               useSpinlock,
 			                               patDumpfile, verbose,
 			                               skipReads);
 		case RAW:
 			return new RawPatternSource   (seed, reads, color,
 			                               randomizeQuals,
-			                               useSpinlock,
 			                               patDumpfile, verbose,
 			                               trim3, trim5,
 			                               skipReads);
 		case FASTQ:
 			return new FastqPatternSource (seed, reads, color,
 			                               randomizeQuals,
-			                               useSpinlock,
 			                               patDumpfile, verbose,
 			                               trim3, trim5,
 			                               solexaQuals, phred64Quals,
@@ -2391,20 +2314,18 @@ patsrcFromStrings(int format,
 		case TAB_MATE:
 			return new TabbedPatternSource(seed, reads, color,
 			                               randomizeQuals,
-			                               useSpinlock,
 			                               patDumpfile, verbose,
 			                               trim3, trim5,
 			                               skipReads);
 		case CMDLINE:
 			return new VectorPatternSource(seed, reads, color,
 			                               randomizeQuals,
-			                               useSpinlock,
 			                               patDumpfile, verbose,
 			                               trim3, trim5,
 			                               skipReads);
 		case RANDOM:
 			return new RandomPatternSource(seed, 2000000, lenRandomReads,
-			                               useSpinlock, patDumpfile,
+			                               patDumpfile,
 			                               verbose);
 		default: {
 			cerr << "Internal error; bad patsrc format: " << format << endl;
@@ -2710,7 +2631,7 @@ static void driver(const char * type,
 				} else {
 					SAMHitSink *sam = new SAMHitSink(
 							fout, 1, rmap, amap,
-							fullRef, defaultMapq,
+							fullRef, samNoQnameTrunc, defaultMapq,
 							PASS_DUMP_FILES,
 							format == TAB_MATE, sampleMax,
 							table, refnames);
@@ -2723,6 +2644,7 @@ static void driver(const char * type,
 								sam->out(0), ebwt.nPat(),
 								refnames, color, samNoSQ, rmap,
 								ebwt.plen(), fullRef,
+								samNoQnameTrunc,
 								argstr.c_str(),
 								rgs.empty() ? NULL : rgs.c_str());
 					}

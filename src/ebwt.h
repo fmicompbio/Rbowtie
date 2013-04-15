@@ -1070,7 +1070,7 @@ public:
 	// Building
 	static TStr join(vector<TStr>& l, uint32_t seed);
 	static TStr join(vector<FileBuf*>& l, vector<RefRecord>& szs, uint32_t sztot, const RefReadInParams& refparams, uint32_t seed);
-	void joinToDisk(vector<FileBuf*>& l, vector<RefRecord>& szs, vector<uint32_t>& plens, uint32_t sztot, const RefReadInParams& refparams, TStr& ret, ostream& out1, ostream& out2, uint32_t seed);
+	void joinToDisk(vector<FileBuf*>& l, vector<RefRecord>& szs, vector<uint32_t>& plens, uint32_t sztot, const RefReadInParams& refparams, TStr& ret, ostream& out1, ostream& out2, uint32_t seed = 0);
 	void buildToDisk(InorderBlockwiseSA<TStr>& sa, const TStr& s, ostream& out1, ostream& out2);
 
 	// I/O
@@ -1668,7 +1668,7 @@ template<typename TStr>
 void Ebwt<TStr>::sanityCheckUpToSide(int upToSide) const {
 	assert(isInMemory());
 	uint32_t occ[] = {0, 0, 0, 0};
-	uint32_t occ_save[] = {0, 0};
+	ASSERT_ONLY(uint32_t occ_save[] = {0, 0});
 	uint32_t cur = 0; // byte pointer
 	const EbwtParams& eh = this->_eh;
 	bool fw = false;
@@ -1702,8 +1702,8 @@ void Ebwt<TStr>::sanityCheckUpToSide(int upToSide) const {
 			ASSERT_ONLY(uint32_t cs = u32ebwt[1]);
 			assert(as == occ[0] || as == occ[0]-1); // one 'a' is a skipped '$' and doesn't count toward occ[]
 			assert_eq(cs, occ[1]);
-			occ_save[0] = occ[2]; // save gs
-			occ_save[1] = occ[3]; // save ts
+			ASSERT_ONLY(occ_save[0] = occ[2]); // save gs
+			ASSERT_ONLY(occ_save[1] = occ[3]); // save ts
 			fw = true;
 		}
 		cur += eh._sideSz;
@@ -2967,7 +2967,7 @@ void Ebwt<TStr>::readIntoMemory(
 				}
 				mmFile[i] = (char*)mmap((void *)0, sbuf.st_size,
 										PROT_READ, MAP_SHARED, fds[i], 0);
-				if(mmFile == (void *)(-1)) {
+				if(mmFile[i] == (void *)(-1)) {
 					perror("mmap");
 					cerr << "Error: Could not memory-map the index file " << names[i] << endl;
 					throw 1;
@@ -3810,7 +3810,7 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
 			cout << "Re-reading \"" << out1 << "\"/\"" << out2 << "\" for sanity check" << endl;
 		Ebwt copy(out1, out2, _verbose, _sanity);
 		assert(!isInMemory());
-		copy.loadIntoMemory(eh._color ? 1 : 0, false, false);
+		copy.loadIntoMemory(eh._color ? 1 : 0, -1, false, false);
 		assert(isInMemory());
 	    assert_eq(eh._lineRate,     copy.eh()._lineRate);
 	    assert_eq(eh._linesPerSide, copy.eh()._linesPerSide);
@@ -3840,7 +3840,7 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
 			assert_eq(this->_isa[i], copy.isa()[i]);
 		for(uint32_t i = 0; i < eh._ebwtTotLen; i++)
 			assert_eq(this->ebwt()[i], copy.ebwt()[i]);
-		copy.sanityCheckAll();
+		//copy.sanityCheckAll();
 		if(_verbose)
 			cout << "Read-in check passed for \"" << out1 << "\"/\"" << out2 << "\"" << endl;
 	}
@@ -4198,7 +4198,7 @@ void Ebwt<TStr>::buildToDisk(InorderBlockwiseSA<TStr>& sa,
 
 	// Did we just finish writing a forward bucket?  (Must be true when
 	// we exit the loop.)
-	bool wroteFwBucket = false;
+	ASSERT_ONLY(bool wroteFwBucket = false);
 
 	// Have we skipped the '$' in the last column yet?
 	ASSERT_ONLY(bool dollarSkipped = false);
@@ -4212,7 +4212,7 @@ void Ebwt<TStr>::buildToDisk(InorderBlockwiseSA<TStr>& sa,
 	VMSG_NL("Entering Ebwt loop");
 	ASSERT_ONLY(uint32_t beforeEbwtOff = (uint32_t)out1.tellp());
 	while(side < ebwtTotSz) {
-		wroteFwBucket = false;
+		ASSERT_ONLY(wroteFwBucket = false);
 		// Sanity-check our cursor into the side buffer
 		assert_geq(sideCur, 0);
 		assert_lt(sideCur, (int)eh._sideBwtSz);
@@ -4353,7 +4353,8 @@ void Ebwt<TStr>::buildToDisk(InorderBlockwiseSA<TStr>& sa,
 #else
 			sideCur = eh._sideBwtSz - 1;
 #endif
-			assert(fw); fw = false; wroteFwBucket = true;
+			assert(fw); fw = false;
+			ASSERT_ONLY(wroteFwBucket = true);
 			// Write 'G' and 'T'
 			assert_leq(occSave[0], occ[2]);
 			assert_leq(occSave[1], occ[3]);

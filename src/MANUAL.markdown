@@ -83,8 +83,11 @@ sometimes with `gmake`) with no arguments.  If building with [MinGW],
 run `make` from the [MSYS] command line.
 
 To support the [`-p`] (multithreading) option, Bowtie needs the
-`pthreads` library.  To compile Bowtie without `pthreads` (which
-disables [`-p`]), use `make BOWTIE_PTHREADS=0`.
+`pthreads` library on posix platforms like linux or will try to 
+use native Win32 threads on Windows. For threading synchronization
+bowtie is using by default a spinlocking mechanism. Spinlocking is
+in general much faster. However if the need arise to not use spinlocking
+bowtie can also be compiled using EXTRA_FLAGS=-DNO_SPINLOCK parameter.
 
 [Cygwin]:   http://www.cygwin.com/
 [MinGW]:    http://www.mingw.org/
@@ -1696,7 +1699,12 @@ Default `bowtie` output
 `bowtie` outputs one alignment per line.  Each line is a collection of
 8 fields separated by tabs; from left to right, the fields are:
 
-1.  Name of read that aligned
+1.  Name of read that aligned.
+
+    Note that the [SAM specification] disallows whitespace in the read name.
+	If the read name contains any whitespace characters, Bowtie 2 will truncate
+	the name at the first whitespace character.  This is similar to the
+	behavior of other tools.
 
 2.  Reference strand aligned to, `+` for forward strand, `-` for
     reverse
@@ -2201,15 +2209,6 @@ architectures).
 </td><td>
 
 Use `<int>` as the seed for pseudo-random number generator.
-
-</td></tr><tr><td>
-
-    --cutoff <int>
-
-</td><td>
-
-Index only the first `<int>` bases of the reference sequences
-(cumulative across sequences) and ignore the rest.
 
 </td></tr><tr><td>
 
