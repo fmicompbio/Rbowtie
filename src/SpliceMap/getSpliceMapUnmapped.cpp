@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
 	print_usage_and_exit();
 
     // variable declaration, open files
-    int i, id, nbIn;
+    int i, id, nbIn = 0;
     bool alignmentFound;
     string seq_str1, id_str1, qual_str1, seq_str2, id_str2, qual_str2;
     char *fnameSeq1, *fnameId1, *fnameQual1, *fnameSeq2, *fnameId2, *fnameQual2, *fnameOut, **fnamesIn;
