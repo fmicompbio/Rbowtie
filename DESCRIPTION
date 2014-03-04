@@ -1,12 +1,16 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.3.0
+Version: 1.3.1
 Date: 2013-04-11
 Author: Florian Hahne, Anita Lerch, Michael B Stadler
 Maintainer: Michael Stadler <michael.stadler@fmi.ch>
 Suggests: parallel
-Description: This package provides an R wrapper around the popular bowtie short read aligner and around SpliceMap, a de novo splice junction discovery and alignment tool. The package is used by the QuasR bioconductor package. We recommend to use the QuasR package instead of using Rbowtie directly.
+Description: This package provides an R wrapper around the popular
+        bowtie short read aligner and around SpliceMap, a de novo
+        splice junction discovery and alignment tool. The package is
+        used by the QuasR bioconductor package. We recommend to use the
+        QuasR package instead of using Rbowtie directly.
 License: Artistic-1.0 | file LICENSE
 LazyLoad: yes
-biocViews: HighThroughputSequencing
+biocViews: Sequencing
