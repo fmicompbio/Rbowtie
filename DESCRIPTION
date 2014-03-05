@@ -13,4 +13,4 @@ Description: This package provides an R wrapper around the popular
         QuasR package instead of using Rbowtie directly.
 License: Artistic-1.0 | file LICENSE
 LazyLoad: yes
-biocViews: Sequencing
+biocViews: Sequencing, Alignment
