@@ -130,7 +130,7 @@ SpliceMap <- function(cfg) {
     #                and add these sequence pairs to unmapped2.sam. This will not remove alignment pairs with exactly
     #                one alignment per read but with set BAM_FUNMAP flags, e.g. pairs that aligned to different chromosomes.)
     message("[SpliceMap] combining spliced alignments...", appendLF=FALSE)
-    callstr <- paste(shQuote(file.path(cfg[['temp_path']], '')),
+    callstr <- paste(shQuote(file.path(cfg[['temp_path']], .Platform$file.sep)),
                      shQuote(file.path(cfg[['temp_path']], 'junction')),
                      as.character(as.integer(cfg[['selectSingleHit']])))
     ret <- system2(file.path(system.file(package="Rbowtie"), "amalgamateSAM"), callstr, stdout=TRUE, stderr=FALSE)
