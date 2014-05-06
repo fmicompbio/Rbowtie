@@ -4,7 +4,7 @@
 
 SEQAN_DIR = SeqAn-1.1
 SEQAN_INC = -I $(SEQAN_DIR)
-INC = $(SEQAN_INC)
+INC = $(SEQAN_INC) -I third_party
 CPP = g++
 CXX = $(CPP)
 CC = gcc
@@ -22,48 +22,54 @@ WINDOWS = 0
 CYGWIN = 0
 MINGW = 0
 ifneq (,$(findstring CYGWIN,$(shell uname)))
+    WINDOWS = 1
+    CYGWIN = 1
+    # POSIX memory-mapped files not currently supported on Windows
+    BOWTIE_MM = 0
+    BOWTIE_SHARED_MEM = 0
+else
+    ifneq (,$(findstring MINGW,$(shell uname)))
 	WINDOWS = 1
-	CYGWIN = 1
+	MINGW = 1
 	# POSIX memory-mapped files not currently supported on Windows
 	BOWTIE_MM = 0
 	BOWTIE_SHARED_MEM = 0
-else
-	ifneq (,$(findstring MINGW,$(shell uname)))
-		WINDOWS = 1
-		MINGW = 1
-		# POSIX memory-mapped files not currently supported on Windows
-		BOWTIE_MM = 0
-		BOWTIE_SHARED_MEM = 0
-	endif
+    endif
 endif
 
 MACOS = 0
 ifneq (,$(findstring Darwin,$(shell uname)))
-	MACOS = 1
+    MACOS = 1
 endif
 
 LINUX = 0
 ifneq (,$(findstring Linux,$(shell uname)))
-	LINUX = 1
-	EXTRA_FLAGS += -Wl,--hash-style=both
+    LINUX = 1
+    EXTRA_FLAGS += -Wl,--hash-style=both
 endif
 
 MM_DEF = 
-	ifeq (1,$(BOWTIE_MM))
-MM_DEF = -DBOWTIE_MM
+ifeq (1,$(BOWTIE_MM))
+    MM_DEF = -DBOWTIE_MM
 endif
 SHMEM_DEF = 
 ifeq (1,$(BOWTIE_SHARED_MEM))
-	SHMEM_DEF = -DBOWTIE_SHARED_MEM
+    SHMEM_DEF = -DBOWTIE_SHARED_MEM
 endif
 PTHREAD_PKG =
 PTHREAD_LIB =
 PTHREAD_DEF =
+
 ifeq (1,$(MINGW))
 	PTHREAD_LIB = 
 	EXTRA_FLAGS += -static-libgcc -static-libstdc++
 else
-	PTHREAD_LIB = -lpthread
+    PTHREAD_LIB = -lpthread
+endif
+
+POPCNT_CAPABILITY ?= 1
+ifeq (1, $(POPCNT_CAPABILITY))
+    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
 endif
 
 PREFETCH_LOCALITY = 2
@@ -75,8 +81,8 @@ BUILD_LIBS =
 INSPECT_LIBS = 
 
 ifeq (1,$(MINGW))
-	BUILD_LIBS = 
-	INSPECT_LIBS = 
+    BUILD_LIBS = 
+    INSPECT_LIBS = 
 endif
 
 OTHER_CPPS = ccnt_lut.cpp ref_read.cpp alphabet.cpp shmem.cpp \
@@ -92,20 +98,39 @@ BUILD_CPPS_MAIN = $(BUILD_CPPS) bowtie_build_main.cpp
 SEARCH_FRAGMENTS = $(wildcard search_*_phase*.c)
 VERSION = $(shell cat VERSION)
 
-# msys will always be 32 bit so look at the cpu arch instead.
-ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITEW6432)))
-	ifeq (1,$(MINGW))
-		BITS=64
-	endif
+BITS=32
+# cygwin will stay 32 bit for now.
+ifeq (1,$(MINGW))
+    # msys will always be 32 bit so look at the cpu arch.
+    ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITEW6432)))
+        BITS=64
+    else
+        ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITECTURE)))
+            BITS=64
+        endif
+    endif
+endif
+
+ifeq (1,$(LINUX))
+    ifeq (x86_64, $(shell uname -p))
+        BITS=64
+    endif
+endif
+
+ifeq (1,$(MACOS))
+    ifeq (x86_64, $(shell uname -m))
+        BITS=64
+    endif
+    EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
 endif
 
 # Convert BITS=?? to a -m flag
 BITS_FLAG =
 ifeq (32,$(BITS))
-	BITS_FLAG = -m32
+    BITS_FLAG = -m32
 endif
 ifeq (64,$(BITS))
-	BITS_FLAG = -m64
+    BITS_FLAG = -m64
 endif
 
 DEBUG_FLAGS = -O0 -g3 $(BITS_FLAG)
@@ -115,7 +140,7 @@ FILE_FLAGS = -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 
 # bowtie-inspect removed from the BIN_LIST
 BIN_LIST = bowtie-build \
-	   bowtie
+           bowtie
 # bowtie-build-debug, bowtie-debug, bowtie-inspect-debug removed from the BIN_LIST_AUX
 BIN_LIST_AUX = 
 
@@ -125,6 +150,7 @@ GENERAL_LIST = $(wildcard scripts/*.sh) \
                $(wildcard genomes/NC_008253.fna) \
                $(wildcard reads/e_coli_1000.*) \
                $(wildcard reads/e_coli_1000_*) \
+               SeqAn-1.1 \
                doc/manual.html \
                doc/README \
                doc/style.css \
@@ -143,6 +169,10 @@ SRC_PKG_LIST = $(wildcard *.h) \
                $(wildcard *.hh) \
                $(wildcard *.c) \
                $(wildcard *.cpp) \
+               $(wildcard third_party/*.h) \
+               $(wildcard third_party/*.hh) \
+               $(wildcard third_party/*.c) \
+               $(wildcard third_party/*.cpp) \
                doc/strip_markdown.pl \
                Makefile \
                $(GENERAL_LIST)
@@ -252,7 +282,7 @@ bowtie-src.zip: $(SRC_PKG_LIST)
 	chmod a+x scripts/*.sh scripts/*.pl
 	mkdir .src.tmp
 	mkdir .src.tmp/bowtie-$(VERSION)
-	zip tmp.zip $(SRC_PKG_LIST)
+	zip -r tmp.zip $(SRC_PKG_LIST)
 	mv tmp.zip .src.tmp/bowtie-$(VERSION)
 	cd .src.tmp/bowtie-$(VERSION) ; unzip tmp.zip ; rm -f tmp.zip
 	cd .src.tmp ; zip -r $@ bowtie-$(VERSION)
