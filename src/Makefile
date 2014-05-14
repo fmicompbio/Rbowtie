@@ -112,7 +112,7 @@ ifeq (1,$(MINGW))
 endif
 
 ifeq (1,$(LINUX))
-    ifeq (x86_64, $(shell uname -p))
+    ifeq (x86_64, $(shell uname -m))
         BITS=64
     endif
 endif
@@ -121,7 +121,11 @@ ifeq (1,$(MACOS))
     ifeq (x86_64, $(shell uname -m))
         BITS=64
     endif
-    EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
+    ifeq (13, $(shell uname -r| cut -d. -f1))
+        EXTRA_FLAGS += -Wl,-macosx_version_min,10.9
+    else
+        EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
+    endif
 endif
 
 # Convert BITS=?? to a -m flag

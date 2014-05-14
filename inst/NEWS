@@ -3,7 +3,7 @@ CHANGES IN VERSION 1.4.1
 
 NEW FEATURES
 
-    o updated bowtie to version 1.0.1 (patched in 1.5.2 to compile on OS X 10.9)
+    o updated bowtie to version 1.0.1 (patched in 1.5.2/1.5.3 to compile on OS X 10.9)
 
 
 CHANGES IN VERSION 1.1.1
