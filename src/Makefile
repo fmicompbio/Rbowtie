@@ -67,10 +67,11 @@ else
     PTHREAD_LIB = -lpthread
 endif
 
-POPCNT_CAPABILITY ?= 1
-ifeq (1, $(POPCNT_CAPABILITY))
-    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
-endif
+# moved POPCNT_CAPABILITY below MacOS checks (has to be 0 on <10.9)
+#POPCNT_CAPABILITY ?= 1
+#ifeq (1, $(POPCNT_CAPABILITY))
+#    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
+#endif
 
 PREFETCH_LOCALITY = 2
 PREF_DEF = -DPREFETCH_LOCALITY=$(PREFETCH_LOCALITY)
@@ -125,7 +126,13 @@ ifeq (1,$(MACOS))
         EXTRA_FLAGS += -Wl,-macosx_version_min,10.9
     else
         EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
+	POPCNT_CAPABILITY = 0
     endif
+endif
+
+POPCNT_CAPABILITY ?= 1
+ifeq (1, $(POPCNT_CAPABILITY))
+    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
 endif
 
 # Convert BITS=?? to a -m flag
