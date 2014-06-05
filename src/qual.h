@@ -3,6 +3,9 @@
 
 #include <stdexcept>
 
+using std::endl;
+using std::cerr;
+
 extern unsigned char qualRounds[];
 extern unsigned char solToPhred[];
 

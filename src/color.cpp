@@ -10,7 +10,6 @@
 #include <string>
 #include "color.h"
 
-using namespace std;
 
 /**
  * Set the console color.

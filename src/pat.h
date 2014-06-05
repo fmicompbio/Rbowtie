@@ -24,7 +24,18 @@
  * Classes and routines for reading reads from various input sources.
  */
 
-using namespace std;
+using std::endl;
+using std::cerr;
+using std::cout;
+using std::vector;
+using std::pair;
+using std::make_pair;
+using std::string;
+using std::ostringstream;
+using std::ostream;
+using std::ofstream;
+using std::ios_base;
+using std::max;
 using namespace seqan;
 
 /// Constructs string base-10 representation of integer 'value'

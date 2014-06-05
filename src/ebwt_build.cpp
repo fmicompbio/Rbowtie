@@ -17,6 +17,10 @@
 #include "filebuf.h"
 #include "reference.h"
 
+using std::endl;
+using std::cerr;
+using std::cout;
+
 /**
  * \file Driver for the bowtie-build indexing tool.
  */

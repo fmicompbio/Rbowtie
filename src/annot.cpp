@@ -8,7 +8,6 @@
 #include <stdexcept>
 #include "annot.h"
 
-using namespace std;
 
 /**
  * Parse an annotation-map file.

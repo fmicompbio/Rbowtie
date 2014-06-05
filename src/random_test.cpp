@@ -9,7 +9,6 @@
 #include <string.h>
 #include "random_source.h"
 
-using namespace std;
 
 int main(void) {
 	RandomSource rand;

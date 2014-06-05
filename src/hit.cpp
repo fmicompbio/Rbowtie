@@ -2,7 +2,6 @@
 #include "hit_set.h"
 #include "search_globals.h"
 
-using namespace std;
 using namespace seqan;
 
 /// Sort by text-id then by text-offset

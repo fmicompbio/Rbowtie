@@ -14,6 +14,13 @@
 #include <iostream>
 #include <fstream>
 
+using std::ostream;
+using std::ifstream;
+using std::string;
+using std::endl;
+using std::cerr;
+using std::cout;
+
 class ReferenceMap {
 	typedef std::pair<uint32_t, uint32_t> U32Pair;
 

@@ -5,7 +5,8 @@
 #include <iostream>
 #include <iomanip>
 
-using namespace std;
+using std::setfill;
+using std::setw;
 
 /**
  * Use time() call to keep track of elapsed time between creation and

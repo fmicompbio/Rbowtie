@@ -4,7 +4,7 @@
 
 SEQAN_DIR = SeqAn-1.1
 SEQAN_INC = -I $(SEQAN_DIR)
-INC = $(SEQAN_INC) -I third_party
+INC = $(SEQAN_INC)
 CPP = g++
 CXX = $(CPP)
 CC = gcc
@@ -40,6 +40,11 @@ endif
 MACOS = 0
 ifneq (,$(findstring Darwin,$(shell uname)))
     MACOS = 1
+	ifneq (,$(findstring 13,$(shell uname -r)))
+		CPP = clang++
+		CC = clang
+		EXTRA_FLAGS += -stdlib=libstdc++
+	endif
 endif
 
 LINUX = 0
@@ -67,10 +72,13 @@ else
     PTHREAD_LIB = -lpthread
 endif
 
-# moved POPCNT_CAPABILITY below MacOS checks (has to be 0 on <10.9)
+# moved down POPCNT_CAPABILITY in order to set it dependent on platform
 #POPCNT_CAPABILITY ?= 1
 #ifeq (1, $(POPCNT_CAPABILITY))
 #    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
+#    ifeq (1,$(MACOS))
+#        INC += -I third_party/macos
+#    endif
 #endif
 
 PREFETCH_LOCALITY = 2
@@ -122,17 +130,20 @@ ifeq (1,$(MACOS))
     ifeq (x86_64, $(shell uname -m))
         BITS=64
     endif
-    ifeq (13, $(shell uname -r| cut -d. -f1))
-        EXTRA_FLAGS += -Wl,-macosx_version_min,10.9
-    else
-        EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
-	POPCNT_CAPABILITY = 0
-    endif
+#    ifeq (13, $(shell uname -r| cut -d. -f1))
+#        EXTRA_FLAGS += -Wl,-macosx_version_min,10.9
+#    else
+#        EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
+#	POPCNT_CAPABILITY = 0
+#    endif
 endif
 
 POPCNT_CAPABILITY ?= 1
 ifeq (1, $(POPCNT_CAPABILITY))
     EXTRA_FLAGS += -DPOPCNT_CAPABILITY
+    ifeq (1,$(MACOS))
+        INC += -I third_party/macos
+    endif
 endif
 
 # Convert BITS=?? to a -m flag

@@ -9,8 +9,8 @@
 #include "timer.h"
 #include "auto_array.h"
 
-using namespace std;
 using namespace seqan;
+using std::stringstream;
 
 #ifndef VMSG_NL
 #define VMSG_NL(args...) \

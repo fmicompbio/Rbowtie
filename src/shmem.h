@@ -19,6 +19,10 @@
 #include <stdexcept>
 #include "str_util.h"
 
+using std::endl;
+using std::cerr;
+using std::cout;
+
 extern void notifySharedMem(void *mem, size_t len);
 
 extern void waitSharedMem(void *mem, size_t len);
@@ -42,7 +46,6 @@ bool allocSharedMem(std::string fname,
                     const char *memName,
                     bool verbose)
 {
-	using namespace std;
 	int shmid = -1;
 	// Calculate key given string
 	key_t key = (key_t)hash_string(fname);

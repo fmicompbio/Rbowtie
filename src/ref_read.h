@@ -14,8 +14,12 @@
 #include "filebuf.h"
 #include "word_io.h"
 
-using namespace std;
 using namespace seqan;
+using std::endl;
+using std::cerr;
+using std::vector;
+using std::string;
+using std::ostream;
 
 /**
  * Encapsulates a stretch of the reference containing only unambiguous
@@ -56,7 +60,7 @@ struct RefRecord {
 		first = (c ? true : false);
 	}
 
-	void write(std::ostream& out, bool be) {
+	void write(ostream& out, bool be) {
 		writeU32(out, off, be);
 		writeU32(out, len, be);
 		out.put(first ? 1 : 0);

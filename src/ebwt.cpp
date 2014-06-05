@@ -11,7 +11,13 @@
 #include <fstream>
 #include <stdlib.h>
 
-using namespace std;
+using std::string;
+using std::endl;
+using std::cerr;
+using std::cout;
+using std::ifstream;
+using std::ios_base;
+using std::ios;
 
 /**
  * Try to find the Bowtie index specified by the user.  First try the

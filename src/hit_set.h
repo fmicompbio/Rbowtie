@@ -18,6 +18,11 @@
 #include "annot.h"
 #include "refmap.h"
 
+using std::min;
+using std::endl;
+using std::cerr;
+using std::vector;
+
 /**
  * Encapsulates a hit contained within a HitSet that can be
  * (de)serialized to/from FileBufs.  Used for chaining.

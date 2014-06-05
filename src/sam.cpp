@@ -12,7 +12,6 @@
 #include "hit.h"
 #include "sam.h"
 
-using namespace std;
 
 /**
  * Write the SAM header lines.

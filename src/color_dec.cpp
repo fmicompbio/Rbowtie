@@ -13,7 +13,6 @@
 #include "color.h"
 #include "qual.h"
 
-using namespace std;
 
 // 4-bit pop count
 static int alts[] = {

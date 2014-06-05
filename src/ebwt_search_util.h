@@ -9,6 +9,8 @@
 #include "hit.h"
 #include "qual.h"
 
+using std::map;
+
 /// Encapsulates a change made to a query base, i.e. "the 3rd base from
 /// the 5' end was changed from an A to a T".  Useful when using
 /// for matching seeded by "seedlings".

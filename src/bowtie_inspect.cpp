@@ -10,7 +10,6 @@
 #include "ebwt.h"
 #include "reference.h"
 
-using namespace std;
 using namespace seqan;
 
 static bool showVersion = false; // just print version and quit?

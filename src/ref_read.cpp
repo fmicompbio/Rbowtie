@@ -1,5 +1,10 @@
 #include "ref_read.h"
 
+using std::endl;
+using std::cerr;
+using std::cout;
+using std::make_pair;
+
 /**
  * Reads past the next ambiguous or unambiguous stretch of sequence
  * from the given FASTA file and returns its length.  Does not do

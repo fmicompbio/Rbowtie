@@ -10,7 +10,7 @@
 #include "assert_helpers.h"
 #include "diff_sample.h"
 
-using namespace std;
+using std::min;
 using namespace seqan;
 
 /**

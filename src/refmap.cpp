@@ -9,7 +9,6 @@
 #include "refmap.h"
 #include "assert_helpers.h"
 
-using namespace std;
 
 /**
  * Given a refid,offset pair in the index space, transform it into the

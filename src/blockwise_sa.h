@@ -19,8 +19,12 @@
 #include "timer.h"
 #include "auto_array.h"
 
-using namespace std;
 using namespace seqan;
+using std::stringstream;
+using std::out_of_range;
+using std::bad_alloc;
+using std::sort;
+using std::max;
 
 // Helpers for printing verbose messages
 

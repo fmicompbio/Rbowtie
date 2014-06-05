@@ -13,6 +13,12 @@
 #include <iostream>
 #include <fstream>
 
+using std::pair;
+using std::ifstream;
+using std::map;
+using std::endl;
+using std::cerr;
+
 /**
  * Encapsulates a sorted list of reference positions that are annotated
  * somehow (e.g. as a SNP).

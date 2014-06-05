@@ -33,8 +33,8 @@
 #include <CHUD/CHUD.h>
 #endif
 
-using namespace std;
 using namespace seqan;
+using std::exception;
 
 static vector<string> mates1;  // mated reads (first mate)
 static vector<string> mates2;  // mated reads (second mate)

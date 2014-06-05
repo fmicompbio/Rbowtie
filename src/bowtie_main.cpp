@@ -12,7 +12,6 @@
 #include <vector>
 #include "tokenize.h"
 
-using namespace std;
 
 extern "C" {
 	int bowtie(int argc, const char **argv);
@@ -28,6 +27,12 @@ extern "C" {
  * bowtie.
  */
 int main(int argc, const char **argv) {
+	using std::ifstream;
+	using std::vector;
+	using std::string;
+	using std::endl;
+	using std::cerr;
+
 	if(argc > 2 && strcmp(argv[1], "-A") == 0) {
 		const char *file = argv[2];
 		ifstream in;
