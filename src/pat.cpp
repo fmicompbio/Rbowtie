@@ -8,6 +8,7 @@
 #include "pat.h"
 #include "filebuf.h"
 
+using namespace std;
 using namespace seqan;
 
 /**

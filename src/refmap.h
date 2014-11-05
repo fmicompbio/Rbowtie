@@ -13,16 +13,10 @@
 #include <vector>
 #include <iostream>
 #include <fstream>
-
-using std::ostream;
-using std::ifstream;
-using std::string;
-using std::endl;
-using std::cerr;
-using std::cout;
+#include "btypes.h"
 
 class ReferenceMap {
-	typedef std::pair<uint32_t, uint32_t> U32Pair;
+	typedef std::pair<TIndexOffU, TIndexOffU> UPair;
 
 public:
 	ReferenceMap(const char *fname, bool parseNames) {
@@ -36,7 +30,7 @@ public:
 	 * new reference coordinate via the reference map supplied by the
 	 * user.
 	 */
-	void map(U32Pair& h) const;
+	void map(UPair& h) const;
 
 	/**
 	 * Return true iff we have a name for reference with id 'i'.
@@ -63,7 +57,7 @@ protected:
 	void parse();
 
 	const char *fname_;
-	std::vector<U32Pair> map_;
+	std::vector<UPair> map_;
 	bool parseNames_;
 	std::vector<std::string> names_;
 };

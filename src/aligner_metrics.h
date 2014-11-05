@@ -11,6 +11,7 @@
 #include "alphabet.h"
 #include "timer.h"
 
+using namespace std;
 
 /**
  * Borrowed from http://www.johndcook.com/standard_deviation.html,

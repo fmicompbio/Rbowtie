@@ -13,8 +13,7 @@
 #include <vector>
 #include <limits>
 
-using std::string;
-using std::vector;
+using namespace std;
 
 /**
  * Split string s according to given delimiters.  Mostly borrowed
@@ -39,11 +38,11 @@ static inline void tokenize(
 }
 
 static inline void tokenize(
-	const string& s,
+	const std::string& s,
     char delim,
-    vector<string>& ss)
+    std::vector<std::string>& ss)
 {
-	string token;
+	std::string token;
 	std::istringstream iss(s);
 	while(getline(iss, token, delim)) {
 		ss.push_back(token);

@@ -8,6 +8,7 @@
 #include <sstream>
 #include "assert_helpers.h"
 
+using namespace std;
 using namespace seqan;
 
 /// Reverse a string in-place
