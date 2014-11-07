@@ -40,12 +40,11 @@ endif
 MACOS = 0
 ifneq (,$(findstring Darwin,$(shell uname)))
     MACOS = 1
-endif
-
-ifneq (,$(findstring 13,$(shell uname -r)))
+    ifneq (,$(findstring 13,$(shell uname -r)))
 	CPP = clang++
 	CC = clang
 	EXTRA_FLAGS += -stdlib=libstdc++
+    endif
 endif
 
 LINUX = 0
@@ -117,6 +116,12 @@ ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITEW6432)))
 endif
 
 ifeq (1,$(LINUX))
+    ifeq (x86_64, $(shell uname -p))
+        BITS=64
+    endif
+endif
+
+ifeq (1,$(MACOS))
     ifeq (x86_64, $(shell uname -p))
         BITS=64
     endif
