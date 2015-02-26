@@ -8,7 +8,6 @@
 #include <stdexcept>
 #include "annot.h"
 
-using namespace std;
 
 /**
  * Parse an annotation-map file.
@@ -20,7 +19,7 @@ void AnnotationMap::parse() {
 		throw 1;
 	}
 	while(in.peek() != EOF) {
-		UPair pos;
+		U32Pair pos;
 		CharPair an;
 		in >> pos.first >> pos.second >> an.first >> an.second;
 		map_[pos] = an;

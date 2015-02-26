@@ -12,7 +12,6 @@
 #include "annot.h"
 #include "pat.h"
 #include "random_source.h"
-#include "btypes.h"
 
 class ReferenceMap;
 class AnnotationMap;
@@ -122,7 +121,7 @@ public:
 	                   bool color,
 	                   bool nosq,
 	                   ReferenceMap *rmap,
-	                   const TIndexOffU* plen,
+	                   const uint32_t* plen,
 	                   bool fullRef,
 	                   bool noQnameTrunc,
 	                   const char *cmdline,

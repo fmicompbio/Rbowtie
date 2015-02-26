@@ -9,14 +9,13 @@
 #include "refmap.h"
 #include "assert_helpers.h"
 
-using namespace std;
 
 /**
  * Given a refid,offset pair in the index space, transform it into the
  * reference coordinate space according to the reference mappings
  * provided by the user.
  */
-void ReferenceMap::map(UPair& h) const {
+void ReferenceMap::map(U32Pair& h) const {
 	if(h.first >= map_.size()) {
 		cerr << "Could not find a reference-map entry for reference "
 				  << h.first << " in map file \"" << fname_ << "\""
@@ -41,7 +40,7 @@ void ReferenceMap::parse() {
 		if(c == '>') {
 			// This appears to be a name line
 			in.get(); // chop off the initial '>'
-			TIndexOffU off;
+			uint32_t off;
 			in >> off;
 			in.get(); // chop off tab
 			char buf[1024];
@@ -52,7 +51,7 @@ void ReferenceMap::parse() {
 			}
 			continue;
 		}
-		TIndexOffU id, off;
+		uint32_t id, off;
 		in >> id >> off;
 		map_.resize(map_.size()+1);
 		map_.back().first = id;

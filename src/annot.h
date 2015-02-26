@@ -12,7 +12,12 @@
 #include <map>
 #include <iostream>
 #include <fstream>
-#include "btypes.h"
+
+using std::pair;
+using std::ifstream;
+using std::map;
+using std::endl;
+using std::cerr;
 
 /**
  * Encapsulates a sorted list of reference positions that are annotated
@@ -20,10 +25,10 @@
  */
 class AnnotationMap {
 public:
-	typedef std::pair<TIndexOffU, TIndexOffU> UPair;
+	typedef std::pair<uint32_t, uint32_t> U32Pair;
 	typedef std::pair<char, char> CharPair;
-	typedef std::map<UPair, CharPair> AnnotMap;
-	typedef std::map<UPair, CharPair>::const_iterator Iter;
+	typedef std::map<U32Pair, CharPair> AnnotMap;
+	typedef std::map<U32Pair, CharPair>::const_iterator Iter;
 
 	AnnotationMap(const char *fname) {
 		fname_ = fname;
@@ -35,7 +40,7 @@ public:
 	 * new reference coordinate via the reference map supplied by the
 	 * user.
 	 */
-	Iter lower_bound(const UPair& h) const {
+	Iter lower_bound(const U32Pair& h) const {
 		return map_.lower_bound(h);
 	}
 

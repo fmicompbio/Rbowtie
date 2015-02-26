@@ -13,7 +13,6 @@
 #include "color.h"
 #include "qual.h"
 
-using namespace std;
 
 // 4-bit pop count
 static int alts[] = {
@@ -190,7 +189,7 @@ void decodeHit(
 		assert_geq(readc, 0);
 		omin = INT_MAX;
 		// t <- index of column in dynamic programming table
-		t = (int)(c - readi + 1);
+		t = c - readi + 1;
 		const int refc = ref[refi + t];
 		int from[] = { table[0][4][t-1], table[1][4][t-1],
 		               table[2][4][t-1], table[3][4][t-1] };

@@ -4,10 +4,8 @@
 #include <stdint.h>
 #include <iostream>
 #include <seqan/sequence.h>
-#include <limits>
 #include "alphabet.h"
 #include "assert_helpers.h"
-#include "btypes.h"
 
 /**
  * Do a binary search using the suffix of 'host' beginning at offset
@@ -25,26 +23,26 @@
  * Returns 0xffffffff if the query suffix matches an element of sa.
  */
 template<typename TStr, typename TSufElt> inline
-TIndexOffU binarySASearch(const TStr& host,
-			TIndexOffU qry,
-            const String<TSufElt>& sa)
+uint32_t binarySASearch(const TStr& host,
+                        uint32_t qry,
+                        const String<TSufElt>& sa)
 {
-	TIndexOffU lLcp = 0, rLcp = 0; // greatest observed LCPs on left and right
-	TIndexOffU l = 0, r = (TIndexOffU)length(sa)+1; // binary-search window
-	TIndexOffU hostLen = TIndexOffU(length(host));
+	uint32_t lLcp = 0, rLcp = 0; // greatest observed LCPs on left and right
+	uint32_t l = 0, r = length(sa)+1; // binary-search window
+	uint32_t hostLen = length(host);
 	while(true) {
 		assert_gt(r, l);
-		TIndexOffU m = (l+r) >> 1;
+		uint32_t m = (l+r) >> 1;
 		if(m == l) {
 			// Binary-search window has closed: we have an answer
-			if(m > 0 && sa[m-1] == qry) return std::numeric_limits<TIndexOffU>::max(); // qry matches
+			if(m > 0 && sa[m-1] == qry) return 0xffffffff; // qry matches
 			assert_leq(m, length(sa));
 			return m; // Return index of right-hand suffix
 		}
 		assert_gt(m, 0);
-		TIndexOffU suf = sa[m-1];
-		if(suf == qry) return std::numeric_limits<TIndexOffU>::max(); // query matches an elt of sa
-		TIndexOffU lcp = min(lLcp, rLcp);
+		uint32_t suf = sa[m-1];
+		if(suf == qry) return 0xffffffff; // query matches an elt of sa
+		uint32_t lcp = min(lLcp, rLcp);
 #ifndef NDEBUG
 		if(prefix(suffix(host, qry), lcp) != prefix(suffix(host, suf), lcp)) {
 			assert(0);
@@ -72,7 +70,7 @@ TIndexOffU binarySASearch(const TStr& host,
 	}
 	// Shouldn't get here
 	assert(false);
-	return std::numeric_limits<TIndexOffU>::max();
+	return 0xffffffff;
 }
 
 #endif /*BINARY_SA_SEARCH_H_*/

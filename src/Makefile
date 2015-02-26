@@ -4,7 +4,7 @@
 
 SEQAN_DIR = SeqAn-1.1
 SEQAN_INC = -I $(SEQAN_DIR)
-INC = $(SEQAN_INC) -I third_party
+INC = $(SEQAN_INC)
 CPP = g++
 CXX = $(CPP)
 CC = gcc
@@ -40,11 +40,11 @@ endif
 MACOS = 0
 ifneq (,$(findstring Darwin,$(shell uname)))
     MACOS = 1
-    ifneq (,$(findstring 13,$(shell uname -r)))
-	CPP = clang++
-	CC = clang
-	EXTRA_FLAGS += -stdlib=libstdc++
-    endif
+	ifneq (,$(findstring 13,$(shell uname -r)))
+		CPP = clang++
+		CC = clang
+		EXTRA_FLAGS += -stdlib=libstdc++
+	endif
 endif
 
 LINUX = 0
@@ -72,11 +72,14 @@ else
     PTHREAD_LIB = -lpthread
 endif
 
-POPCNT_CAPABILITY ?= 1
-ifeq (1, $(POPCNT_CAPABILITY))
-    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
-    INC += -I third_party
-endif
+# moved down POPCNT_CAPABILITY in order to set it dependent on platform
+#POPCNT_CAPABILITY ?= 1
+#ifeq (1, $(POPCNT_CAPABILITY))
+#    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
+#    ifeq (1,$(MACOS))
+#        INC += -I third_party/macos
+#    endif
+#endif
 
 PREFETCH_LOCALITY = 2
 PREF_DEF = -DPREFETCH_LOCALITY=$(PREFETCH_LOCALITY)
@@ -105,56 +108,71 @@ SEARCH_FRAGMENTS = $(wildcard search_*_phase*.c)
 VERSION = $(shell cat VERSION)
 
 BITS=32
-ifeq (x86_64,$(shell uname -m))
-	BITS=64
-endif
-# msys will always be 32 bit so look at the cpu arch instead.
-ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITEW6432)))
-	ifeq (1,$(MINGW))
-		BITS=64
-	endif
+# cygwin will stay 32 bit for now.
+ifeq (1,$(MINGW))
+    # msys will always be 32 bit so look at the cpu arch.
+    ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITEW6432)))
+        BITS=64
+    else
+        ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITECTURE)))
+            BITS=64
+        endif
+    endif
 endif
 
 ifeq (1,$(LINUX))
-    ifeq (x86_64, $(shell uname -p))
+    ifeq (x86_64, $(shell uname -m))
         BITS=64
     endif
 endif
 
 ifeq (1,$(MACOS))
-    ifeq (x86_64, $(shell uname -p))
+    ifeq (x86_64, $(shell uname -m))
         BITS=64
+    endif
+#    ifeq (13, $(shell uname -r| cut -d. -f1))
+#        EXTRA_FLAGS += -Wl,-macosx_version_min,10.9
+#    else
+#        EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
+#	POPCNT_CAPABILITY = 0
+#    endif
+endif
+
+POPCNT_CAPABILITY ?= 1
+ifeq (1, $(POPCNT_CAPABILITY))
+    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
+    ifeq (1,$(MACOS))
+        INC += -I third_party/macos
     endif
 endif
 
+# Convert BITS=?? to a -m flag
+BITS_FLAG =
 ifeq (32,$(BITS))
-    $(error bowtie compilation requires a 64-bit platform )
+    BITS_FLAG = -m32
+endif
+ifeq (64,$(BITS))
+    BITS_FLAG = -m64
 endif
 
-DEBUG_FLAGS = -O0 -g3 -m64
-RELEASE_FLAGS = -O3 -m64
+DEBUG_FLAGS = -O0 -g3 $(BITS_FLAG)
+RELEASE_FLAGS = -O3 $(BITS_FLAG)
 NOASSERT_FLAGS = -DNDEBUG
 FILE_FLAGS = -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 
-# bowtie-inspect-s, bowtie-inspect-l removed from the BIN_LIST
-BIN_LIST = bowtie-build-s \
-           bowtie-build-l \
-           bowtie-align-s \
-           bowtie-align-l
-# bowtie-build-s-debug, bowtie-build-l-debug, bowtie-align-s-debug, bowtie-align-l-debug, bowtie-inspect-s-debug, bowtie-inspect-l-debug removed from BIN_LIST_AUX
+# bowtie-inspect removed from the BIN_LIST
+BIN_LIST = bowtie-build \
+           bowtie
+# bowtie-build-debug, bowtie-debug, bowtie-inspect-debug removed from the BIN_LIST_AUX
 BIN_LIST_AUX = 
 
-# bowtie-inspect removed from GENERAL_LIST
 GENERAL_LIST = $(wildcard scripts/*.sh) \
                $(wildcard scripts/*.pl) \
-               $(wildcard scripts/*.py) \
                $(wildcard indexes/e_coli*) \
                $(wildcard genomes/NC_008253.fna) \
                $(wildcard reads/e_coli_1000.*) \
                $(wildcard reads/e_coli_1000_*) \
                SeqAn-1.1 \
-               bowtie \
-               bowtie-build \
                doc/manual.html \
                doc/README \
                doc/style.css \
@@ -206,17 +224,9 @@ RELEASE_DEFS = -DCOMPILER_OPTIONS="\"$(RELEASE_FLAGS) $(ALL_FLAGS)\""
 # bowtie-build targets
 #
 
-bowtie-build-s: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
+bowtie-build: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS)  \
 		$(DEFS) $(NOASSERT_FLAGS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
-		$(LIBS) $(BUILD_LIBS)
-
-bowtie-build-l: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
-	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS)  \
-		$(DEFS) -DBOWTIE_64BIT_INDEX $(NOASSERT_FLAGS) -Wall \
 		$(INC) \
 		-o $@ $< \
 		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
@@ -230,17 +240,9 @@ bowtie-build_prof: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
 		$(LIBS) $(BUILD_LIBS)
 
-bowtie-build-s-debug: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
+bowtie-build-debug: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 	$(CXX) $(DEBUG_FLAGS) $(DEBUG_DEFS) $(ALL_FLAGS) \
 		$(DEFS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
-		$(LIBS) $(BUILD_LIBS)
-
-bowtie-build-l-debug: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
-	$(CXX) $(DEBUG_FLAGS) $(DEBUG_DEFS) $(ALL_FLAGS) \
-		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
 		$(INC) \
 		-o $@ $< \
 		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
@@ -250,17 +252,9 @@ bowtie-build-l-debug: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 # bowtie targets
 #
 
-bowtie-align-s: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
+bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
 	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS) \
 		$(DEFS) $(NOASSERT_FLAGS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
-		$(LIBS) $(SEARCH_LIBS)
-
-bowtie-align-l: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
-	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS) \
-		$(DEFS) $(NOASSERT_FLAGS) -DBOWTIE_64BIT_INDEX -Wall \
 		$(INC) \
 		-o $@ $< \
 		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
@@ -275,19 +269,10 @@ bowtie_prof: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FR
 		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
 		$(LIBS) $(SEARCH_LIBS)
 
-bowtie-align-s-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
+bowtie-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
 	$(CXX) $(DEBUG_FLAGS) \
 		$(DEBUG_DEFS) $(ALL_FLAGS) \
 		$(DEFS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
-		$(LIBS) $(SEARCH_LIBS)
-
-bowtie-align-l-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
-	$(CXX) $(DEBUG_FLAGS) \
-		$(DEBUG_DEFS) $(ALL_FLAGS) \
-		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
 		$(INC) \
 		-o $@ $< \
 		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
@@ -297,7 +282,7 @@ bowtie-align-l-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(
 # bowtie-inspect targets
 #
 
-#bowtie-inspect-s: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS)
+#bowtie-inspect: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS)
 #	$(CXX) $(RELEASE_FLAGS) \
 #		$(RELEASE_DEFS) $(ALL_FLAGS) \
 #		$(DEFS) -Wall \
@@ -306,28 +291,10 @@ bowtie-align-l-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(
 #		$(OTHER_CPPS) \
 #		$(LIBS)
 
-#bowtie-inspect-l: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS)
-#	$(CXX) $(RELEASE_FLAGS) \
-#		$(RELEASE_DEFS) $(ALL_FLAGS) \
-#		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
-#		$(INC) -I . \
-#		-o $@ $< \
-#		$(OTHER_CPPS) \
-#		$(LIBS)
-
-#bowtie-inspect-s-debug: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS) 
+#bowtie-inspect-debug: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS) 
 #	$(CXX) $(DEBUG_FLAGS) \
 #		$(DEBUG_DEFS) $(ALL_FLAGS) \
 #		$(DEFS) -Wall \
-#		$(INC) -I . \
-#		-o $@ $< \
-#		$(OTHER_CPPS) \
-#		$(LIBS)
-
-#bowtie-inspect-l-debug: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS) 
-#	$(CXX) $(DEBUG_FLAGS) \
-#		$(DEBUG_DEFS) $(ALL_FLAGS) \
-#		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
 #		$(INC) -I . \
 #		-o $@ $< \
 #		$(OTHER_CPPS) \
@@ -349,7 +316,7 @@ bowtie-bin.zip: $(BIN_PKG_LIST) $(BIN_LIST) $(BIN_LIST_AUX)
 	rm -rf .bin.tmp
 	mkdir .bin.tmp
 	mkdir .bin.tmp/bowtie-$(VERSION)
-	if [ -f bowtie-align-s.exe ] ; then \
+	if [ -f bowtie.exe ] ; then \
 		zip tmp.zip $(BIN_PKG_LIST) $(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX)) ; \
 	else \
 		zip tmp.zip $(BIN_PKG_LIST) $(BIN_LIST) $(BIN_LIST_AUX) ; \
@@ -383,12 +350,6 @@ doc/manual.html: MANUAL.markdown
 	cp bowtie ../inst/bowtie
 	cp bowtie-build ../inst/bowtie-build
 #	cp bowtie-inspect ../inst/bowtie-inspect
-	cp bowtie-build-s ../inst/bowtie-build-s
-	cp bowtie-build-l ../inst/bowtie-build-l
-	cp bowtie-align-s ../inst/bowtie-align-s
-	cp bowtie-align-l ../inst/bowtie-align-l
-#	cp bowtie-inspect-s ../inst/bowtie-inspect-s
-#	cp bowtie-inspect-l ../inst/bowtie-inspect-l
 
 ../inst/SpliceMap: SpliceMap/SpliceMap
 	mkdir -p ../inst

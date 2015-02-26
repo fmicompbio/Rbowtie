@@ -10,7 +10,6 @@
 #include "ebwt.h"
 #include "reference.h"
 
-using namespace std;
 using namespace seqan;
 
 static bool showVersion = false; // just print version and quit?
@@ -21,15 +20,14 @@ static int across       = 60; // number of characters across in FASTA output
 static bool extra       = false; // print extra summary info
 static bool exclAllGaps = false; // print extra summary info
 static bool refFromEbwt = false; // true -> when printing reference, decode it from Ebwt instead of reading it from BitPairReference
-static string wrapper;
+
 static const char *short_options = "vhnsea:";
 
 enum {
 	ARG_VERSION = 256,
 	ARG_USAGE,
 	ARG_EXTRA,
-	ARG_EXCL_AMBIG,
-	ARG_WRAPPER
+	ARG_EXCL_AMBIG
 };
 
 static struct option long_options[] = {
@@ -43,7 +41,6 @@ static struct option long_options[] = {
 	{(char*)"help",     no_argument,        0, 'h'},
 	{(char*)"across",   required_argument,  0, 'a'},
 	{(char*)"ebwt-ref", no_argument,        0, 'e'},
-	{(char*)"wrapper",  required_argument,  0, ARG_WRAPPER},
 	{(char*)0, 0, 0, 0} // terminator
 };
 
@@ -53,18 +50,14 @@ static struct option long_options[] = {
 static void printUsage(ostream& out) {
 	out
 	<< "Usage: bowtie-inspect [options]* <ebwt_base>" << endl
-	<< "  <ebwt_base>        ebwt filename minus trailing .1." + gEbwt_ext + "/.2." + gEbwt_ext << endl
+	<< "  <ebwt_base>        ebwt filename minus trailing .1.ebwt/.2.ebwt" << endl
 	<< endl
 	<< "  By default, prints FASTA records of the indexed nucleotide sequences to" << endl
 	<< "  standard out.  With -n, just prints names.  With -s, just prints a summary of" << endl
 	<< "  the index parameters and sequences.  With -e, preserves colors if applicable." << endl
 	<< endl
-	<< "Options:" << endl;
-	if(wrapper == "basic-0") {
-		out << "  --large-index      force inspection of the 'large' index, even if a" << endl
-			<< "                     'small' one is present." << endl;
-	}
-	out << "  -a/--across <int>  Number of characters across in FASTA output (default: 60)" << endl
+	<< "Options:" << endl
+	<< "  -a/--across <int>  Number of characters across in FASTA output (default: 60)" << endl
 	<< "  -n/--names         Print reference sequence names only" << endl
 	<< "  -s/--summary       Print summary incl. ref names, lengths, index properties" << endl
 	<< "  -e/--ebwt-ref      Reconstruct reference from ebwt (slow, preserves colors)" << endl
@@ -72,13 +65,6 @@ static void printUsage(ostream& out) {
 	<< "  -h/--help          print detailed description of tool and its options" << endl
 	<< "  --help             print this usage message" << endl
 	;
-	if(wrapper.empty()) {
-		cerr << endl
-		     << "*** Warning ***" << endl
-			 << "'boowtie-inspect' was run directly.  It is recommended "
-			 << "to use the wrapper script instead."
-			 << endl << endl;
-	}
 }
 
 /**
@@ -113,9 +99,6 @@ static void parseOptions(int argc, char **argv) {
 	do {
 		next_option = getopt_long(argc, argv, short_options, long_options, &option_index);
 		switch (next_option) {
-			case ARG_WRAPPER:
-				wrapper = optarg;
-				break;
 			case ARG_USAGE:
 			case 'h':
 				printUsage(cout);
@@ -222,7 +205,7 @@ void print_ref_sequences(
 	ostream& fout,
 	bool color,
 	const vector<string>& refnames,
-	const TIndexOffU* plen,
+	const uint32_t* plen,
 	const string& adjustedEbwtFileBase)
 {
 	BitPairReference ref(
@@ -282,25 +265,25 @@ void print_index_sequences(
 	TStr cat_ref;
 	ebwt.restore(cat_ref);
 
-	TIndexOffU curr_ref = OFF_MASK;
+	uint32_t curr_ref = 0xffffffff;
 	string curr_ref_seq = "";
-	TIndexOffU curr_ref_len = OFF_MASK;
+	uint32_t curr_ref_len = 0xffffffff;
 	uint32_t last_text_off = 0;
 	size_t orig_len = seqan::length(cat_ref);
-	TIndexOffU tlen = OFF_MASK;
+	uint32_t tlen = 0xffffffff;
 	bool first = true;
 	for(size_t i = 0; i < orig_len; i++) {
-		TIndexOffU tidx = OFF_MASK;
-		TIndexOffU textoff = OFF_MASK;
-		tlen = OFF_MASK;
+		uint32_t tidx = 0xffffffff;
+		uint32_t textoff = 0xffffffff;
+		tlen = 0xffffffff;
 
-		ebwt.joinedToTextOff(1 /* qlen */, (TIndexOffU)i, tidx, textoff, tlen);
+		ebwt.joinedToTextOff(1 /* qlen */, i, tidx, textoff, tlen);
 
-		if (tidx != OFF_MASK && textoff < tlen)
+		if (tidx != 0xffffffff && textoff < tlen)
 		{
 			if (curr_ref != tidx)
 			{
-				if (curr_ref != OFF_MASK)
+				if (curr_ref != 0xffffffff)
 				{
 					// Add trailing gaps, if any exist
 					if(curr_ref_seq.length() < curr_ref_len) {
@@ -315,7 +298,7 @@ void print_index_sequences(
 				first = true;
 			}
 
-			TIndexOffU textoff_adj = textoff;
+			uint32_t textoff_adj = textoff;
 			if(first && textoff > 0) textoff_adj++;
 			if (textoff_adj - last_text_off > 1)
 				curr_ref_seq += string(textoff_adj - last_text_off - 1, 'N');
@@ -397,7 +380,7 @@ void print_index_summary(
 	cout << "FTab-Chars" << '\t' << ebwt.eh().ftabChars() << endl;
 	for(size_t i = 0; i < ebwt.nPat(); i++) {
 		cout << "Sequence-" << (i+1)
-		     << '\t' << p_refnames[refs.expandIdx((uint32_t)i)]
+		     << '\t' << p_refnames[refs.expandIdx(i)]
 		     << '\t' << (ebwt.plen()[i] + (color ? 1 : 0))
 		     << endl;
 	}
