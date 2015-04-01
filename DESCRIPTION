@@ -1,7 +1,7 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.7.7
+Version: 1.7.8
 Date: 2015-03-02
 Author: Florian Hahne, Anita Lerch, Michael B Stadler
 Maintainer: Michael Stadler <michael.stadler@fmi.ch>
@@ -15,3 +15,4 @@ Description: This package provides an R wrapper around the popular
 License: Artistic-1.0 | file LICENSE
 LazyLoad: yes
 biocViews: Sequencing, Alignment
+Archs: x64
