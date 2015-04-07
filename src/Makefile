@@ -1,10 +1,47 @@
 #
 # Makefile for bowtie, bowtie-build, bowtie-inspect
 #
+# edited for cross-platform compilation as part of Rbowtie:
+# - set BITS=64 (comment parts that are related to setting BITS)
+# - replace 'uname -p' by 'uname -m'
+# - set POPCNT_CAPABILITY = 0 on MACOS
+# - removed files
+#   from BIN_LIST:
+#     bowtie-build-l
+#     bowtie-align-l
+#     bowtie-inspect-l
+#     bowtie-inspect-s
+#   from BIN_LIST_AUX:
+#     bowtie-build-s-debug
+#     bowtie-build-l-debug
+#     bowtie-align-s-debug
+#     bowtie-align-l-debug
+#     bowtie-inspect-s-debug
+#     bowtie-inspect-l-debug
+#   from GENERAL_LIST:
+#     $(wildcard scripts/*.sh)
+#     $(wildcard scripts/*.pl)
+#     $(wildcard scripts/*.py)
+#     $(wildcard indexes/e_coli*)
+#     $(wildcard genomes/NC_008253.fna)
+#     $(wildcard reads/e_coli_1000.*)
+#     $(wildcard reads/e_coli_1000_*)
+#     doc/manual.html
+#     doc/README
+#     doc/style.css
+#     reads/e_coli_10000snp.fa
+#     reads/e_coli_10000snp.fq
+# - commented unnecessary buld targets
+# - added SpliceMap targets
+# - added installation instrauctions for bowtie and SpliceMap
+# - added installation targets to 'all'
+#     ../inst/bowtie
+#     ../inst/SpliceMap
+# - added Makefile.win
 
 SEQAN_DIR = SeqAn-1.1
 SEQAN_INC = -I $(SEQAN_DIR)
-INC = $(SEQAN_INC)
+INC = $(SEQAN_INC) -I third_party
 CPP = g++
 CXX = $(CPP)
 CC = gcc
@@ -16,6 +53,7 @@ EXTRA_CFLAGS =
 EXTRA_CXXFLAGS =
 CFLAGS += $(EXTRA_CFLAGS)
 CXXFLAGS += $(EXTRA_CXXFLAGS)
+BITS = 64
 
 # Detect Cygwin or MinGW
 WINDOWS = 0
@@ -40,11 +78,13 @@ endif
 MACOS = 0
 ifneq (,$(findstring Darwin,$(shell uname)))
     MACOS = 1
-	ifneq (,$(findstring 13,$(shell uname -r)))
-		CPP = clang++
-		CC = clang
-		EXTRA_FLAGS += -stdlib=libstdc++
-	endif
+    POPCNT_CAPABILITY = 0
+
+    ifneq (,$(findstring 13,$(shell uname -r)))
+	CPP = clang++
+	CC = clang
+	EXTRA_FLAGS += -stdlib=libstdc++
+    endif
 endif
 
 LINUX = 0
@@ -72,14 +112,11 @@ else
     PTHREAD_LIB = -lpthread
 endif
 
-# moved down POPCNT_CAPABILITY in order to set it dependent on platform
-#POPCNT_CAPABILITY ?= 1
-#ifeq (1, $(POPCNT_CAPABILITY))
-#    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
-#    ifeq (1,$(MACOS))
-#        INC += -I third_party/macos
-#    endif
-#endif
+POPCNT_CAPABILITY ?= 1
+ifeq (1, $(POPCNT_CAPABILITY))
+    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
+    INC += -I third_party
+endif
 
 PREFETCH_LOCALITY = 2
 PREF_DEF = -DPREFETCH_LOCALITY=$(PREFETCH_LOCALITY)
@@ -107,77 +144,41 @@ BUILD_CPPS_MAIN = $(BUILD_CPPS) bowtie_build_main.cpp
 SEARCH_FRAGMENTS = $(wildcard search_*_phase*.c)
 VERSION = $(shell cat VERSION)
 
-BITS=32
-# cygwin will stay 32 bit for now.
-ifeq (1,$(MINGW))
-    # msys will always be 32 bit so look at the cpu arch.
-    ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITEW6432)))
-        BITS=64
-    else
-        ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITECTURE)))
-            BITS=64
-        endif
-    endif
-endif
+#BITS=32
+#ifeq (x86_64,$(shell uname -m))
+#	BITS=64
+#endif
+## msys will always be 32 bit so look at the cpu arch instead.
+#ifneq (,$(findstring AMD64,$(PROCESSOR_ARCHITEW6432)))
+#	ifeq (1,$(MINGW))
+#		BITS=64
+#	endif
+#endif
 
-ifeq (1,$(LINUX))
-    ifeq (x86_64, $(shell uname -m))
-        BITS=64
-    endif
-endif
-
-ifeq (1,$(MACOS))
-    ifeq (x86_64, $(shell uname -m))
-        BITS=64
-    endif
-#    ifeq (13, $(shell uname -r| cut -d. -f1))
-#        EXTRA_FLAGS += -Wl,-macosx_version_min,10.9
-#    else
-#        EXTRA_FLAGS += -Wl,-macosx_version_min,10.6
-#	POPCNT_CAPABILITY = 0
+#ifeq (1,$(LINUX))
+#    ifeq (x86_64, $(shell uname -m))
+#        BITS=64
 #    endif
-endif
+#endif
 
-POPCNT_CAPABILITY ?= 1
-ifeq (1, $(POPCNT_CAPABILITY))
-    EXTRA_FLAGS += -DPOPCNT_CAPABILITY
-    ifeq (1,$(MACOS))
-        INC += -I third_party/macos
-    endif
-endif
+#ifeq (32,$(BITS))
+#    $(error bowtie2 compilation requires a 64-bit platform )
+#endif
 
-# Convert BITS=?? to a -m flag
-BITS_FLAG =
-ifeq (32,$(BITS))
-    BITS_FLAG = -m32
-endif
-ifeq (64,$(BITS))
-    BITS_FLAG = -m64
-endif
-
-DEBUG_FLAGS = -O0 -g3 $(BITS_FLAG)
-RELEASE_FLAGS = -O3 $(BITS_FLAG)
+DEBUG_FLAGS = -O0 -g3 -m64
+RELEASE_FLAGS = -O3 -m64
 NOASSERT_FLAGS = -DNDEBUG
 FILE_FLAGS = -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 
-# bowtie-inspect removed from the BIN_LIST
-BIN_LIST = bowtie-build \
-           bowtie
-# bowtie-build-debug, bowtie-debug, bowtie-inspect-debug removed from the BIN_LIST_AUX
+BIN_LIST = bowtie-build-s \
+           bowtie-align-s
+
 BIN_LIST_AUX = 
 
-GENERAL_LIST = $(wildcard scripts/*.sh) \
-               $(wildcard scripts/*.pl) \
-               $(wildcard indexes/e_coli*) \
-               $(wildcard genomes/NC_008253.fna) \
-               $(wildcard reads/e_coli_1000.*) \
-               $(wildcard reads/e_coli_1000_*) \
-               SeqAn-1.1 \
-               doc/manual.html \
-               doc/README \
-               doc/style.css \
-               reads/e_coli_10000snp.fa \
-               reads/e_coli_10000snp.fq \
+GENERAL_LIST = SeqAn-1.1 \
+               bowtie \
+               bowtie-build \
+               bowtie-inspect \
                $(PTHREAD_PKG) \
                AUTHORS \
                LICENSE \
@@ -224,7 +225,7 @@ RELEASE_DEFS = -DCOMPILER_OPTIONS="\"$(RELEASE_FLAGS) $(ALL_FLAGS)\""
 # bowtie-build targets
 #
 
-bowtie-build: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
+bowtie-build-s: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS)  \
 		$(DEFS) $(NOASSERT_FLAGS) -Wall \
 		$(INC) \
@@ -232,27 +233,43 @@ bowtie-build: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
 		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
 		$(LIBS) $(BUILD_LIBS)
 
-bowtie-build_prof: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
-	$(CXX) $(RELEASE_FLAGS) -pg -p -g3 $(RELEASE_DEFS) $(ALL_FLAGS) \
-		$(DEFS) $(NOASSERT_FLAGS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
-		$(LIBS) $(BUILD_LIBS)
+#bowtie-build-l: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
+#	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS)  \
+#		$(DEFS) -DBOWTIE_64BIT_INDEX $(NOASSERT_FLAGS) -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
+#		$(LIBS) $(BUILD_LIBS)
 
-bowtie-build-debug: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
-	$(CXX) $(DEBUG_FLAGS) $(DEBUG_DEFS) $(ALL_FLAGS) \
-		$(DEFS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
-		$(LIBS) $(BUILD_LIBS)
+#bowtie-build_prof: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
+#	$(CXX) $(RELEASE_FLAGS) -pg -p -g3 $(RELEASE_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) $(NOASSERT_FLAGS) -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
+#		$(LIBS) $(BUILD_LIBS)
+
+#bowtie-build-s-debug: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
+#	$(CXX) $(DEBUG_FLAGS) $(DEBUG_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
+#		$(LIBS) $(BUILD_LIBS)
+
+#bowtie-build-l-debug: ebwt_build.cpp $(OTHER_CPPS) $(HEADERS)
+#	$(CXX) $(DEBUG_FLAGS) $(DEBUG_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(BUILD_CPPS_MAIN) \
+#		$(LIBS) $(BUILD_LIBS)
 
 #
 # bowtie targets
 #
 
-bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
+bowtie-align-s: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
 	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS) \
 		$(DEFS) $(NOASSERT_FLAGS) -Wall \
 		$(INC) \
@@ -260,29 +277,46 @@ bowtie: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMEN
 		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
 		$(LIBS) $(SEARCH_LIBS)
 
-bowtie_prof: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
-	$(CXX) $(RELEASE_FLAGS) \
-		$(RELEASE_DEFS) -pg -p -g3 $(ALL_FLAGS) \
-		$(DEFS) $(NOASSERT_FLAGS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
-		$(LIBS) $(SEARCH_LIBS)
+#bowtie-align-l: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
+#	$(CXX) $(RELEASE_FLAGS) $(RELEASE_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) $(NOASSERT_FLAGS) -DBOWTIE_64BIT_INDEX -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
+#		$(LIBS) $(SEARCH_LIBS)
 
-bowtie-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
-	$(CXX) $(DEBUG_FLAGS) \
-		$(DEBUG_DEFS) $(ALL_FLAGS) \
-		$(DEFS) -Wall \
-		$(INC) \
-		-o $@ $< \
-		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
-		$(LIBS) $(SEARCH_LIBS)
+#bowtie_prof: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
+#	$(CXX) $(RELEASE_FLAGS) \
+#		$(RELEASE_DEFS) -pg -p -g3 $(ALL_FLAGS) \
+#		$(DEFS) $(NOASSERT_FLAGS) -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
+#		$(LIBS) $(SEARCH_LIBS)
+
+#bowtie-align-s-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
+#	$(CXX) $(DEBUG_FLAGS) \
+#		$(DEBUG_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
+#		$(LIBS) $(SEARCH_LIBS)
+
+#bowtie-align-l-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_FRAGMENTS)
+#	$(CXX) $(DEBUG_FLAGS) \
+#		$(DEBUG_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
+#		$(INC) \
+#		-o $@ $< \
+#		$(OTHER_CPPS) $(SEARCH_CPPS_MAIN) \
+#		$(LIBS) $(SEARCH_LIBS)
 
 #
 # bowtie-inspect targets
 #
 
-#bowtie-inspect: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS)
+#bowtie-inspect-s: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS)
 #	$(CXX) $(RELEASE_FLAGS) \
 #		$(RELEASE_DEFS) $(ALL_FLAGS) \
 #		$(DEFS) -Wall \
@@ -291,7 +325,16 @@ bowtie-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_F
 #		$(OTHER_CPPS) \
 #		$(LIBS)
 
-#bowtie-inspect-debug: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS) 
+#bowtie-inspect-l: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS)
+#	$(CXX) $(RELEASE_FLAGS) \
+#		$(RELEASE_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
+#		$(INC) -I . \
+#		-o $@ $< \
+#		$(OTHER_CPPS) \
+#		$(LIBS)
+
+#bowtie-inspect-s-debug: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS) 
 #	$(CXX) $(DEBUG_FLAGS) \
 #		$(DEBUG_DEFS) $(ALL_FLAGS) \
 #		$(DEFS) -Wall \
@@ -300,32 +343,41 @@ bowtie-debug: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH_F
 #		$(OTHER_CPPS) \
 #		$(LIBS)
 
-bowtie-src.zip: $(SRC_PKG_LIST)
-	chmod a+x scripts/*.sh scripts/*.pl
-	mkdir .src.tmp
-	mkdir .src.tmp/bowtie-$(VERSION)
-	zip -r tmp.zip $(SRC_PKG_LIST)
-	mv tmp.zip .src.tmp/bowtie-$(VERSION)
-	cd .src.tmp/bowtie-$(VERSION) ; unzip tmp.zip ; rm -f tmp.zip
-	cd .src.tmp ; zip -r $@ bowtie-$(VERSION)
-	cp .src.tmp/$@ .
-	rm -rf .src.tmp
+#bowtie-inspect-l-debug: bowtie_inspect.cpp $(HEADERS) $(OTHER_CPPS) 
+#	$(CXX) $(DEBUG_FLAGS) \
+#		$(DEBUG_DEFS) $(ALL_FLAGS) \
+#		$(DEFS) -DBOWTIE_64BIT_INDEX -Wall \
+#		$(INC) -I . \
+#		-o $@ $< \
+#		$(OTHER_CPPS) \
+#		$(LIBS)
 
-bowtie-bin.zip: $(BIN_PKG_LIST) $(BIN_LIST) $(BIN_LIST_AUX) 
-	chmod a+x scripts/*.sh scripts/*.pl
-	rm -rf .bin.tmp
-	mkdir .bin.tmp
-	mkdir .bin.tmp/bowtie-$(VERSION)
-	if [ -f bowtie.exe ] ; then \
-		zip tmp.zip $(BIN_PKG_LIST) $(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX)) ; \
-	else \
-		zip tmp.zip $(BIN_PKG_LIST) $(BIN_LIST) $(BIN_LIST_AUX) ; \
-	fi
-	mv tmp.zip .bin.tmp/bowtie-$(VERSION)
-	cd .bin.tmp/bowtie-$(VERSION) ; unzip tmp.zip ; rm -f tmp.zip
-	cd .bin.tmp ; zip -r $@ bowtie-$(VERSION)
-	cp .bin.tmp/$@ .
-	rm -rf .bin.tmp
+#bowtie-src.zip: $(SRC_PKG_LIST)
+#	chmod a+x scripts/*.sh scripts/*.pl
+#	mkdir .src.tmp
+#	mkdir .src.tmp/bowtie-$(VERSION)
+#	zip -r tmp.zip $(SRC_PKG_LIST)
+#	mv tmp.zip .src.tmp/bowtie-$(VERSION)
+#	cd .src.tmp/bowtie-$(VERSION) ; unzip tmp.zip ; rm -f tmp.zip
+#	cd .src.tmp ; zip -r $@ bowtie-$(VERSION)
+#	cp .src.tmp/$@ .
+#	rm -rf .src.tmp
+
+#bowtie-bin.zip: $(BIN_PKG_LIST) $(BIN_LIST) $(BIN_LIST_AUX) 
+#	chmod a+x scripts/*.sh scripts/*.pl
+#	rm -rf .bin.tmp
+#	mkdir .bin.tmp
+#	mkdir .bin.tmp/bowtie-$(VERSION)
+#	if [ -f bowtie-align-s.exe ] ; then \
+#		zip tmp.zip $(BIN_PKG_LIST) $(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX)) ; \
+#	else \
+#		zip tmp.zip $(BIN_PKG_LIST) $(BIN_LIST) $(BIN_LIST_AUX) ; \
+#	fi
+#	mv tmp.zip .bin.tmp/bowtie-$(VERSION)
+#	cd .bin.tmp/bowtie-$(VERSION) ; unzip tmp.zip ; rm -f tmp.zip
+#	cd .bin.tmp ; zip -r $@ bowtie-$(VERSION)
+#	cp .bin.tmp/$@ .
+#	rm -rf .bin.tmp
 
 #
 # SpliceMap targets
@@ -335,21 +387,13 @@ SpliceMap/SpliceMap:
 	make -f Makefile; \
 	echo "MAKE of SpliceMap DONE"	
 
-.PHONY: doc
-doc: doc/manual.html MANUAL
-
-doc/manual.html: MANUAL.markdown
-	echo "<h1>Table of Contents</h1>" > .tmp.head
-	pandoc -T "Bowtie Manual" -B .tmp.head \
-	       --css style.css -o $@ \
-	       --from markdown --to HTML \
-	       --table-of-contents $^
-
+#
+# installation instructions
+#
 ../inst/bowtie: $(BIN_LIST)
 	mkdir -p ../inst
-	cp bowtie ../inst/bowtie
-	cp bowtie-build ../inst/bowtie-build
-#	cp bowtie-inspect ../inst/bowtie-inspect
+	cp bowtie-align-s ../inst/bowtie
+	cp bowtie-build-s ../inst/bowtie-build
 
 ../inst/SpliceMap: SpliceMap/SpliceMap
 	mkdir -p ../inst
@@ -360,8 +404,18 @@ doc/manual.html: MANUAL.markdown
 	cp SpliceMap/runSpliceMap_QuasR ../inst/runSpliceMap_QuasR
 	cp SpliceMap/sortsam ../inst/sortsam
 
-MANUAL: MANUAL.markdown
-	perl doc/strip_markdown.pl < $^ > $@
+#.PHONY: doc
+#doc: doc/manual.html MANUAL
+
+#doc/manual.html: MANUAL.markdown
+#	echo "<h1>Table of Contents</h1>" > .tmp.head
+#	pandoc -T "Bowtie Manual" -B .tmp.head \
+#	       --css style.css -o $@ \
+#	       --from markdown --to HTML \
+#	       --table-of-contents $^
+
+#MANUAL: MANUAL.markdown
+#	perl doc/strip_markdown.pl < $^ > $@
 
 .PHONY: clean
 clean:
@@ -371,4 +425,4 @@ clean:
 	bowtie-src.zip bowtie-bin.zip
 	rm -f core.*
 	rm -f SpliceMap/*.o SpliceMap/SpliceMap SpliceMap/amalgamateSAM SpliceMap/getSpliceMapUnmapped SpliceMap/fuseReorder SpliceMap/runSpliceMap_QuasR SpliceMap/sortsam
-	rm -f core.* ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/getSpliceMapUnmapped ../inst/fuseReorder ../inst/runSpliceMap_QuasR ../inst/sortsam
+	rm -f ../inst/bowtie ../inst/bowtie-build ../inst/SpliceMap ../inst/amalgamateSAM ../inst/getSpliceMapUnmapped ../inst/fuseReorder ../inst/runSpliceMap_QuasR ../inst/sortsam

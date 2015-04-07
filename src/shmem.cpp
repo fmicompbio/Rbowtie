@@ -14,6 +14,7 @@
 #include <errno.h>
 #include "shmem.h"
 
+using namespace std;
 
 /**
  * Notify other users of a shared-memory chunk that the leader has

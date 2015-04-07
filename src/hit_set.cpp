@@ -11,6 +11,7 @@
 #include "alphabet.h"
 #include "hit_set.h"
 
+using namespace std;
 using namespace seqan;
 
 /**

@@ -10,10 +10,6 @@
 
 #include <string>
 
-using std::string;
-using std::cout;
-using std::ostringstream;
-
 enum {
 	COLOR_RED = 1,
 	COLOR_GREEN,

@@ -8,7 +8,7 @@
 #include <iostream>
 #include "edit.h"
 
-using std::ostream;
+using namespace std;
 
 ostream& operator<< (ostream& os, const Edit& e) {
 	os << e.pos << (char)e.chr;

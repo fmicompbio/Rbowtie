@@ -13,13 +13,39 @@
 #include "assert_helpers.h"
 #include "filebuf.h"
 #include "word_io.h"
+#include "endian_swap.h"
 
+using namespace std;
 using namespace seqan;
-using std::endl;
-using std::cerr;
-using std::vector;
-using std::string;
-using std::ostream;
+
+class RefTooLongException : public exception {
+
+public:
+	RefTooLongException() {
+#ifdef BOWTIE_64BIT_INDEX
+		// This should never happen!
+		msg = "Error: Reference sequence has more than 2^64-1 characters!  "
+		      "Please divide the reference into smaller chunks and index each "
+			  "independently.";
+#else
+		msg = "Error: Reference sequence has more than 2^32-1 characters!  "
+		      "Please build a large index by passing the --large-index option "
+			  "to bowtie2-build";
+#endif
+	}
+
+	~RefTooLongException() throw() {}
+
+	const char* what() const throw() {
+		return msg.c_str();
+	}
+
+protected:
+
+	string msg;
+
+};
+
 
 /**
  * Encapsulates a stretch of the reference containing only unambiguous
@@ -30,44 +56,33 @@ using std::ostream;
  */
 struct RefRecord {
 	RefRecord() : off(), len(), first() { }
-	RefRecord(uint32_t _off, uint32_t _len, bool _first) :
+	RefRecord(TIndexOffU _off, TIndexOffU _len, bool _first) :
 		off(_off), len(_len), first(_first)
 	{ }
 
 	RefRecord(FILE *in, bool swap) {
 		assert(in != NULL);
-		if(!fread(&off, 4, 1, in)) {
+		if(!fread(&off, OFF_SIZE, 1, in)) {
 			cerr << "Error reading RefRecord offset from FILE" << endl;
 			throw 1;
 		}
-		if(swap) off = endianSwapU32(off);
-		if(!fread(&len, 4, 1, in)) {
+		if(swap) off = endianSwapU(off);
+		if(!fread(&len, OFF_SIZE, 1, in)) {
 			cerr << "Error reading RefRecord offset from FILE" << endl;
 			throw 1;
 		}
-		if(swap) len = endianSwapU32(len);
+		if(swap) len = endianSwapU(len);
 		first = fgetc(in) ? true : false;
 	}
 
-	RefRecord(int in, bool swap) {
-		off = readU32(in, swap);
-		len = readU32(in, swap);
-		char c;
-		if(!read(in, &c, 1)) {
-			cerr << "Error reading RefRecord 'first' flag" << endl;
-			throw 1;
-		}
-		first = (c ? true : false);
-	}
-
-	void write(ostream& out, bool be) {
-		writeU32(out, off, be);
-		writeU32(out, len, be);
+	void write(std::ostream& out, bool be) {
+		writeU<TIndexOffU>(out, off, be);
+		writeU<TIndexOffU>(out, len, be);
 		out.put(first ? 1 : 0);
 	}
 
-	uint32_t off; /// Offset of the first character in the record
-	uint32_t len; /// Length of the record
+	TIndexOffU off; /// Offset of the first character in the record
+	TIndexOffU len; /// Length of the record
 	bool   first; /// Whether this record is the first for a reference sequence
 };
 
@@ -107,7 +122,7 @@ fastaRefReadSizes(
 	vector<uint32_t>& plens,
 	const RefReadInParams& rparms,
 	BitpairOutFileBuf* bpout,
-	int& numSeqs);
+	TIndexOff& numSeqs);
 
 extern void
 reverseRefRecords(
@@ -283,7 +298,7 @@ static RefRecord fastaRefReadAppend(FileBuf& in,
 			}
 		}
 	}
-	return RefRecord(off, len, first);
+	return RefRecord((TIndexOffU)off, (TIndexOffU)len, first);
 }
 
 #endif /*ndef REF_READ_H_*/
