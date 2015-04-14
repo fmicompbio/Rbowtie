@@ -3,7 +3,7 @@ CHANGES IN VERSION 1.7.9
 
 NEW FEATURES
 
-    o updated bowtie to version 1.1.1
+    o updated bowtie to version 1.1.1 (currently not using long index feature, renaming bowtie-align-s and bowtie-build-s to bowtie and bowtie-build)
 
 
 CHANGES IN VERSION 1.4.1
