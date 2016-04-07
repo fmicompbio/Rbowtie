@@ -38,6 +38,8 @@
 #     ../inst/bowtie
 #     ../inst/SpliceMap
 # - added Makefile.win
+#     use $(BINPREF) as path to gcc/g++ (needed to work with gcc-4.9.3-based toolchain)
+#     force 64-bit compilation even in i386 package (WIN = 64)
 
 SEQAN_DIR = SeqAn-1.1
 SEQAN_INC = -I $(SEQAN_DIR)
