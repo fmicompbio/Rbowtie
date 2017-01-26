@@ -83,13 +83,13 @@ SpliceMap <- function(cfg) {
     refL <- scan(file.path(cfg[['temp_path']], "ref_list"),
                  what=list(chrName="", chrFile="", chrDir="", chrS="", chrE=""), sep="\t", quiet=TRUE)
     callstr <- sample(paste(shQuote(cfgFname), refL[['chrName']]))
-    if(require(parallel, quietly=TRUE)) {
+    if(!is.na(suppressWarnings(packageDescription("parallel", fields="Version")))) {
         message("[SpliceMap] finding spliced alignments for ",
                 length(refL[['chrName']]), " chromosomes using ",
                 cfg[['num_chromosome_together']], " parallel processes...", appendLF=FALSE)
-        cl <- makeCluster(cfg[['num_chromosome_together']])
-        ret <- parLapplyLB(cl, callstr, system2, command=file.path(system.file(package="Rbowtie"), "SpliceMap"), stdout=TRUE, stderr=FALSE)
-        stopCluster(cl)
+        cl <- parallel::makeCluster(cfg[['num_chromosome_together']])
+        ret <- parallel::parLapplyLB(cl, callstr, system2, command=file.path(system.file(package="Rbowtie"), "SpliceMap"), stdout=TRUE, stderr=FALSE)
+        parallel::stopCluster(cl)
     } else {
         message("[SpliceMap] finding spliced alignments for ",
                 length(refL[['chrName']]), " chromosomes using serial processes...", appendLF=FALSE)

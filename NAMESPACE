@@ -1,3 +1,5 @@
 exportPattern("^[^\\.]")
 
+importFrom("utils", "write.table")
+importFrom("utils", "packageDescription")
 
