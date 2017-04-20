@@ -81,12 +81,13 @@ MACOS = 0
 ifneq (,$(findstring Darwin,$(shell uname)))
     MACOS = 1
     POPCNT_CAPABILITY = 0
-
-    ifneq (,$(findstring 13,$(shell uname -r)))
-	CPP = clang++
-	CC = clang
-	EXTRA_FLAGS += -stdlib=libstdc++
-    endif
+    MACOS_VER_MAJOR = $(shell uname -r | cut -d. -f1)
+    MACOS_VER_GT_12 = $(shell [ $(MACOS_VER_MAJOR) -gt 12 ] && echo true)
+	ifeq (true, $(MACOS_VER_GT_12))
+		CPP = clang++
+		CC = clang
+		override EXTRA_FLAGS += -stdlib=libstdc++
+	endif
 endif
 
 LINUX = 0
