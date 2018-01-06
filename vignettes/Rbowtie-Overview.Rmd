@@ -18,11 +18,11 @@ vignette: >
 
 # Introduction
 The `r Biocpkg("Rbowtie")` package provides an **R** wrapper around the popular
-*bowtie*[@bowtie] short read aligner and around *SpliceMap*[@SpliceMap] a *de novo*
+*bowtie* [@bowtie] short read aligner and around *SpliceMap* [@SpliceMap] a *de novo*
 splice junction discovery and alignment tool, which makes use of the *bowtie*
 software package.
 
-The package is used by the `r Biocpkg("QuasR")`[@QuasR] bioconductor package to
+The package is used by the `r Biocpkg("QuasR")` [@QuasR] bioconductor package to
 _qu_antify and _a_nnotate _s_hort _r_eads. We recommend to use the `r Biocpkg("QuasR")`
 package instead of using `r Biocpkg("Rbowtie")` directly. The `r Biocpkg("QuasR")`
 package provides a simpler interface than `r Biocpkg("Rbowtie")` and covers the
@@ -32,7 +32,7 @@ quantification.
 
 # Preliminaries
 ## Citing *Rbowtie*
-If you use `r Biocpkg("Rbowtie")`[@Rbowtie] in your work, you can cite it as follows:
+If you use `r Biocpkg("Rbowtie")` [@Rbowtie] in your work, you can cite it as follows:
 ```{r cite, eval=TRUE}
 citation("Rbowtie")
 ```
