@@ -1,0 +1,165 @@
+---
+title: "An introduction to Rbowtie"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+bibliography: Rbowtie-refs.bib
+author:
+  - Michael Stadler
+  - Dimos Gaidatzis
+  - Anita Lerch
+package: Rbowtie
+output: 
+  BiocStyle::html_document:
+    toc_float: true
+vignette: >
+  %\VignetteIndexEntry{An introduction to Rbowtie}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}  
+---
+
+# Introduction
+The `r Biocpkg("Rbowtie")` package provides an **R** wrapper around the popular
+*bowtie*[@bowtie] short read aligner and around *SpliceMap*[@SpliceMap] a *de novo*
+splice junction discovery and alignment tool, which makes use of the *bowtie*
+software package.
+
+The package is used by the `r Biocpkg("QuasR")`[@QuasR] bioconductor package to
+_qu_antify and _a_nnotate _s_hort _r_eads. We recommend to use the `r Biocpkg("QuasR")`
+package instead of using `r Biocpkg("Rbowtie")` directly. The `r Biocpkg("QuasR")`
+package provides a simpler interface than `r Biocpkg("Rbowtie")` and covers the
+whole analysis workflow of typical ultra-high throughput sequencing experiments,
+starting from the raw sequence reads, over pre-processing and alignment, up to
+quantification.
+
+# Preliminaries
+## Citing *Rbowtie*
+If you use `r Biocpkg("Rbowtie")`[@Rbowtie] in your work, you can cite it as follows:
+```{r cite, eval=TRUE}
+citation("Rbowtie")
+```
+
+## Installation
+`r Biocpkg("Rbowtie")` is a package for the **R** computing environment and it is
+assumed that you have already installed **R**. See the **R** project at
+(http://www.r-project.org). To install the latest version of `r Biocpkg("Rbowtie")`,
+you will need to be using the latest version of **R**. `r Biocpkg("Rbowtie")` is
+part of the Bioconductor project at (http://www.bioconductor.org). To get
+`r Biocpkg("Rbowtie")` together with its dependencies you can use
+```{r install, eval=FALSE}
+source("https://www.bioconductor.org/biocLite.R")
+biocLite("Rbowtie")
+```
+
+
+## Loading of *Rbowtie*
+In order to run the code examples in this vignette, the `r Biocpkg("Rbowtie")`
+library need to be loaded.
+```{r loadLibraries, eval=TRUE}
+library(Rbowtie)
+```
+
+## How to get help
+Most questions about `r Biocpkg("Rbowtie")` will hopefully be answered by the
+documentation or references. If you've run into a question which isn't addressed
+by the documentation, or you've found a conflict between the documentation and
+software itself, then there is an active support community which can offer help.
+
+The authors of the package (maintainer: `r maintainer("Rbowtie")`) always appreciate
+receiving reports of bugs in the package functions or in the documentation. The
+same goes for well-considered suggestions for improvements. 
+
+Any other questions or problems concerning `r Biocpkg("Rbowtie")` should be posted
+to the Bioconductor support site (https://support.bioconductor.org). Users posting
+to the support site for the first time should read the helpful posting guide at
+(https://support.bioconductor.org/info/faq/). Note that each function in `r Biocpkg("Rbowtie")`
+has it's own help page, e.g. `help("bowtie")`. Posting etiquette requires that you
+read the relevant help page carefully before posting a problem to the site.
+
+# Example usage for individual Rbowtie functions
+Please refer to the `r Biocpkg("Rbowtie")` reference manual or the function documentation
+(e.g. using `?bowtie`) for a complete description of `r Biocpkg("Rbowtie")` functions.
+The descriptions provided below are meant to give and overview over all functions
+and summarize the purpose of each one.
+
+## Build the reference index with `bowtie_build`{#bowtieBuild}
+To be able to align short reads to a genome, an index has to be build first using
+the function `bowtie_build`. Information about arguments can be found with the help
+of the `bowtie_build_usage` function or in the manual page `?bowtie_build`.
+```{r bowtieBuildUsage, eval=TRUE}
+bowtie_build_usage()
+```
+
+`refFiles` below is a vector with filenames of the reference sequence in `FASTA`
+format, and `indexDir` specifies an output directory for the index files that will
+be generated when calling `bowtie_build`:
+```{r bowtieBuild, eval=TRUE}
+refFiles <- dir(system.file(package="Rbowtie", "samples", "refs"), full=TRUE)
+indexDir <- file.path(tempdir(), "refsIndex")
+
+tmp <- bowtie_build(references=refFiles, outdir=indexDir, prefix="index", force=TRUE)
+head(tmp)
+```
+
+## Create alignment with `bowtie`
+Information about the arguments supported by the `bowtie` function can be obtained
+with the help of the `bowtie_usage` function or in the manual page `?bowtie`.
+```{r bowtieUsage, eval=TRUE}
+bowtie_usage()
+```
+
+In the example below, `readsFiles` is the name of a file containing short reads to
+be aligned with `bowtie`, and `samFiles` specifies the name of the output file with
+the generated alignments.
+```{r bowtie, eval=TRUE}
+readsFiles <- system.file(package="Rbowtie", "samples", "reads", "reads.fastq")
+samFiles <- file.path(tempdir(), "alignments.sam")
+
+bowtie(sequences=readsFiles, 
+       index=file.path(indexDir, "index"), 
+       outfile=samFiles, sam=TRUE,
+       best=TRUE, force=TRUE)
+strtrim(readLines(samFiles), 65)
+```
+
+
+## Create spliced alignment with `SpliceMap`
+While `bowtie` only generates ungapped alignments, the `SpliceMap` function can be
+used to generate spliced alignments. `SpliceMap` is itself using `bowtie`. To use
+it, it is necessary to create an index of the reference sequence as described in
+\@ref(bowtieBuild). `SpliceMap` parameters are specified in the form of a named
+list, which follows closely the configure file format of the original `SpliceMap`
+program[@SpliceMap]. Be aware that `SpliceMap` can only be used for reads that are
+at least 50bp long.
+```{r SpliceMap, eval=TRUE}
+readsFiles <- system.file(package="Rbowtie", "samples", "reads", "reads.fastq")
+refDir <- system.file(package="Rbowtie", "samples", "refs", "chr1.fa")
+indexDir <- file.path(tempdir(), "refsIndex")
+samFiles <- file.path(tempdir(), "splicedAlignments.sam")
+
+cfg <- list(genome_dir=refDir,
+            reads_list1=readsFiles,
+            read_format="FASTQ",
+            quality_format="phred-33",
+            outfile=samFiles,
+            temp_path=tempdir(),
+            max_intron=400000,
+            min_intron=20000,
+            max_multi_hit=10,
+            seed_mismatch=1,
+            read_mismatch=2,
+            num_chromosome_together=2,
+            bowtie_base_dir=file.path(indexDir, "index"),
+            num_threads=4,
+            try_hard="yes",
+            selectSingleHit=TRUE)
+res <- SpliceMap(cfg)
+res
+strtrim(readLines(samFiles), 65)
+```
+
+# Session information
+The output in this vignette was produced under:
+```{r sessionInfo}
+sessionInfo()
+```
+
+# References

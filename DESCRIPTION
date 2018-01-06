@@ -1,11 +1,11 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.19.0
-Date: 2017-04-20
+Version: 1.19.1
+Date: 2018-01-06
 Author: Florian Hahne, Anita Lerch, Michael B Stadler
 Maintainer: Michael Stadler <michael.stadler@fmi.ch>
-Suggests: parallel
+Suggests: parallel, BiocStyle, knitr, rmarkdown
 SystemRequirements: GNU make
 Description: This package provides an R wrapper around the popular
         bowtie short read aligner and around SpliceMap, a de novo
@@ -16,3 +16,4 @@ License: Artistic-1.0 | file LICENSE
 LazyLoad: yes
 biocViews: Sequencing, Alignment
 Archs: x64
+VignetteBuilder: knitr
