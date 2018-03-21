@@ -33,7 +33,7 @@ int main (int argc, char * const argv[]) {
     int_fast32_t max_clip_allowed = 40;  
 	
     int fullread_length = -1;
-    unsigned int head_clip_length = 0;
+    int head_clip_length = 0; // redefined from "unsigned int head_clip_length = 0;"; is set by atoi() which returns int; head_clip_length < 0 throws warning if unsigned int
     bool print_sam = false; 
     bool cufflinks = false;
 	

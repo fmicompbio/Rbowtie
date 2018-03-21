@@ -361,7 +361,7 @@ string getDirection(int direc_type)
 
 string directranslate(bool direc_type)
 {
-	direc_type = abs(direc_type);
+	// direc_type = abs(direc_type); // abs(bool) has no effect; throws warning
 	if (direc_type) { 
 		return "+";
 	}else { 
