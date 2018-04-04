@@ -8,7 +8,7 @@ Interface to SpliceMap
 \description{
 The following function can be used to call the SpliceMap binaries.
 
-We recommend to use the \code{\link[QuasR]{QuasR}} package instead of using \code{SpliceMap} directly. The \code{\link[QuasR]{QuasR}} package provides a simpler interface then Rbowtie and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.
+We recommend to use the \pkg{QuasR} package instead of using \code{SpliceMap} directly. \pkg{QuasR} provides a simpler interface than \code{SpliceMap} and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.
 }
 
 \usage{

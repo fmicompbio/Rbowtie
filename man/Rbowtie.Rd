@@ -12,7 +12,7 @@ Interface to bowtie
 \description{
 The following functions can be used to call the bowtie and bowtie-build binaries.
 
-We recommend to use the \code{\link[QuasR]{QuasR}} package instead of using \code{bowtie} and \code{bowtie_build} directly. The \code{\link[QuasR]{QuasR}} package provides a simpler interface then Rbowtie and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.
+We recommend to use the \pkg{QuasR} package instead of using \code{bowtie} and \code{bowtie_build} directly. \pkg{QuasR} provides a simpler interface than \pkg{Rbowtie} and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.
 }
 
 \usage{
