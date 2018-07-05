@@ -45,8 +45,8 @@ you will need to be using the latest version of **R**. `r Biocpkg("Rbowtie")` is
 part of the Bioconductor project at (http://www.bioconductor.org). To get
 `r Biocpkg("Rbowtie")` together with its dependencies you can use
 ```{r install, eval=FALSE}
-source("https://www.bioconductor.org/biocLite.R")
-biocLite("Rbowtie")
+install.packages("BiocManager")
+BiocManager::install("Rbowtie")
 ```
 
 
