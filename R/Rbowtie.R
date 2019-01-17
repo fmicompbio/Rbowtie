@@ -13,8 +13,8 @@ bowtie_build <- function(references, outdir, ..., prefix="index", force=FALSE, s
         stop("Directory '", outdir, "' exists. Use 'force=TRUE' to overwrite.")
     if(is.null(list(...)[["usage"]]) || !list(...)[["usage"]])
         dir.create(outdir, recursive=TRUE, showWarnings=FALSE)
-    indexPrefix <- shQuote(file.path(outdir, prefix))
-    args <- sprintf("%s %s %s", .createFlags(list(...)), paste(shQuote(references), collapse=","), indexPrefix)
+    indexPrefix <- shQuote(path.expand(file.path(outdir, prefix)))
+    args <- sprintf("%s %s %s", .createFlags(list(...)), paste(shQuote(path.expand(references)), collapse=","), indexPrefix)
     return(invisible(.bowtieBin("bowtie-build", args)))
 }
 
@@ -36,7 +36,7 @@ bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow")
                                  stop("Argument 'sequences' has to be a character vector of filenames ",
                                       "to align against the bowtie index or a character of read ",
                                       "sequences if the additional argument c==TRUE.")
-                             paste(shQuote(sequences), collapse=",")
+                             paste(shQuote(path.expand(sequences)), collapse=",")
                          },
                          paired={
                          if(!is.list(sequences) || length(sequences)!=2)
@@ -48,7 +48,7 @@ bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow")
                                  stop("Argument 'sequences[[", i, "]]' has to be a character vector of filenames ",
                                       "to align against the bowtie index or a character of read ",
                                       "sequences if the additional argument c==TRUE.")
-                             tmp <- paste(tmp,  "-", i, " ", paste(shQuote(sequences[[i]]), collapse=","), " ", sep="")
+                             tmp <- paste(tmp,  "-", i, " ", paste(shQuote(path.expand(sequences[[i]])), collapse=","), " ", sep="")
                          }
                          tmp
                      },
@@ -57,7 +57,7 @@ bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow")
                                  stop("Argument 'sequences' has to be a character vector of filenames ",
                                       "to align against the bowtie index or a character of read ",
                                       "sequences if the additional argument c==TRUE.")
-                         paste("-12 ", paste(shQuote(sequences), collapse=","))
+                         paste("-12 ", paste(shQuote(path.expand(sequences)), collapse=","))
            })
     
         if(!is.character(index) || !file.exists(dirname(index)))
@@ -70,11 +70,11 @@ bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow")
                  "file name to store the bowtie alignments in.")
         if(strict && (file.exists(outfile) && !force))
             stop("File '", outfile, "' exists. Use 'force=TRUE' to overwrite.")
-        sprintf(" %s", shQuote(outfile))
+        sprintf(" %s", shQuote(path.expand(outfile)))
     } else ""
    
     
-    args <- sprintf("%s %s %s %s", .createFlags(args), shQuote(index), seqArg, outfile)
+    args <- sprintf("%s %s %s %s", .createFlags(args), shQuote(path.expand(index)), seqArg, outfile)
     return(invisible(.bowtieBin("bowtie", args)))
 }
 

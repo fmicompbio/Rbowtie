@@ -35,7 +35,7 @@ SpliceMap <- function(cfg) {
 
     # 2. generate SpliceMap sequence, identifier, quality and 25mer files
     message("[SpliceMap] splitting reads into 25mers...", appendLF=FALSE)
-    callstr <- paste(shQuote(cfgFname), "generate25mers")
+    callstr <- paste(shQuote(path.expand(cfgFname)), "generate25mers")
     ret <- system2(file.path(system.file(package="Rbowtie"), "runSpliceMap_QuasR"), callstr, stdout=TRUE, stderr=FALSE)
     if(length(ret)>0 && grepl("^Total 25-mer extraction section time", ret[length(ret)]))
         message("done")
@@ -47,9 +47,9 @@ SpliceMap <- function(cfg) {
     callstr <- paste(ifelse(!is.null(cfg$try_hard) && cfg$try_hard=="yes", "-y", ""),
                      sprintf("-S -k %d -m %d -v 2 -r -p %d --best --strata",
                              cfg[['max_multi_hit']], cfg[['max_multi_hit']], cfg[['num_threads']]),
-                     shQuote(cfg[['bowtie_base_dir']]),
-                     shQuote(file.path(cfg[['temp_path']], "25mers.map")),
-                     shQuote(file.path(cfg[['temp_path']], "25mers.map_unsorted")))
+                     shQuote(path.expand(cfg[['bowtie_base_dir']])),
+                     shQuote(path.expand(file.path(cfg[['temp_path']], "25mers.map"))),
+                     shQuote(path.expand(file.path(cfg[['temp_path']], "25mers.map_unsorted"))))
     ret <- system2(file.path(system.file(package="Rbowtie"),"bowtie"), callstr, stdout=TRUE, stderr=TRUE)
     if(length(ret)>0 && grepl("^(Reported [0-9]+ alignments|No alignments)", ret[length(ret)]))
         message("done")
@@ -59,8 +59,8 @@ SpliceMap <- function(cfg) {
     # 4. sort bowtie output
     message("[SpliceMap] sorting 25mer-alignments...", appendLF=FALSE)
     callstr <- paste("-idx",
-                     shQuote(file.path(cfg[['temp_path']], "25mers.map_unsorted")),
-                     shQuote(file.path(cfg[['temp_path']], "25mers.map.out")))
+                     shQuote(path.expand(file.path(cfg[['temp_path']], "25mers.map_unsorted"))),
+                     shQuote(path.expand(file.path(cfg[['temp_path']], "25mers.map.out"))))
     ret <- system2(file.path(system.file(package="Rbowtie"), "sortsam"), callstr, stdout=TRUE, stderr=TRUE)
     if(length(ret)>0 && grepl("^Finished", ret[length(ret)]))
         message("done")
@@ -70,7 +70,7 @@ SpliceMap <- function(cfg) {
 
     # 5. index mapped 25-mers
     message("[SpliceMap] indexing 25mer-alignments...", appendLF=FALSE)
-    callstr <- paste(shQuote(cfgFname), "index25merAlignments")
+    callstr <- paste(shQuote(path.expand(cfgFname)), "index25merAlignments")
     ret <- system2(file.path(system.file(package="Rbowtie"), "runSpliceMap_QuasR"), callstr, stdout=TRUE, stderr=FALSE)
     if(length(ret)>0 && grepl("^Total mapping index creation section execution time", ret[length(ret)]))
         message("done")
@@ -82,7 +82,7 @@ SpliceMap <- function(cfg) {
     # 6. call SpliceMap to create spliced alignments for individual chromosomes
     refL <- scan(file.path(cfg[['temp_path']], "ref_list"),
                  what=list(chrName="", chrFile="", chrDir="", chrS="", chrE=""), sep="\t", quiet=TRUE)
-    callstr <- sample(paste(shQuote(cfgFname), refL[['chrName']]))
+    callstr <- sample(paste(shQuote(path.expand(cfgFname)), refL[['chrName']]))
     if(!is.na(suppressWarnings(packageDescription("parallel", fields="Version")))) {
         message("[SpliceMap] finding spliced alignments for ",
                 length(refL[['chrName']]), " chromosomes using ",
@@ -104,7 +104,7 @@ SpliceMap <- function(cfg) {
     #     (Remark: semi-mapped read pairs will appear as mapped)
     if("reads_list2" %in% names(cfg)) {
         message("[SpliceMap] extracting unmapped reads (paired-end mode)...", appendLF=FALSE)
-        callstr <- paste("P", paste(shQuote(file.path(cfg[['temp_path']],
+        callstr <- paste("P", paste(shQuote(file.path(path.expand(cfg[['temp_path']]),
                                                       c('read_1_1','read_1_1.names','read_1_1.quals',
                                                         'read_1_2','read_1_2.names','read_1_2.quals','unmapped.sam',
                                                         sprintf("%s_%s.sam",refL[['chrFile']],refL[['chrS']])))), collapse=" "),
@@ -112,7 +112,7 @@ SpliceMap <- function(cfg) {
         ret <- system2(file.path(system.file(package="Rbowtie"), "getSpliceMapUnmapped"), callstr, stdout=TRUE, stderr=FALSE)
     } else {
         message("[SpliceMap] extracting unmapped reads (single read mode)...", appendLF=FALSE)
-        callstr <- paste("S", paste(shQuote(file.path(cfg[['temp_path']],
+        callstr <- paste("S", paste(shQuote(file.path(path.expand(cfg[['temp_path']]),
                                                       c('read_1_1','read_1_1.names','read_1_1.quals','unmapped.sam',
                                                         sprintf("%s_%s.sam",refL[['chrFile']],refL[['chrS']])))), collapse=" "),
                          sep=" ")
@@ -130,8 +130,8 @@ SpliceMap <- function(cfg) {
     #                and add these sequence pairs to unmapped2.sam. This will not remove alignment pairs with exactly
     #                one alignment per read but with set BAM_FUNMAP flags, e.g. pairs that aligned to different chromosomes.)
     message("[SpliceMap] combining spliced alignments...", appendLF=FALSE)
-    callstr <- paste(shQuote(file.path(cfg[['temp_path']], .Platform$file.sep)),
-                     shQuote(file.path(cfg[['temp_path']], 'junction')),
+    callstr <- paste(shQuote(path.expand(file.path(cfg[['temp_path']], .Platform$file.sep))),
+                     shQuote(path.expand(file.path(cfg[['temp_path']], 'junction'))),
                      as.character(as.integer(cfg[['selectSingleHit']])))
     ret <- system2(file.path(system.file(package="Rbowtie"), "amalgamateSAM"), callstr, stdout=TRUE, stderr=FALSE)
     if(length(ret)>0 && grepl("^SAM File Amalgamation Time", ret[length(ret)]))
@@ -142,7 +142,7 @@ SpliceMap <- function(cfg) {
     # 7a. combine junction.sam with unmapped reads (unmapped.sam, unmapped2.sam) in read input order --> junction2.sam
     #     (the on.exit() will rename junction2.sam to cfg[['outfile']])
     message("[SpliceMap] reordering final output...", appendLF=FALSE)
-    callstr <- shQuote(file.path(cfg[['temp_path']]))
+    callstr <- shQuote(path.expand(file.path(cfg[['temp_path']])))
     ret <- system2(file.path(system.file(package="Rbowtie"), "fuseReorder"), callstr, stdout=TRUE, stderr=FALSE)
     if(length(ret)>0 && grepl("^Finished", ret[length(ret)]))
         message("done")
