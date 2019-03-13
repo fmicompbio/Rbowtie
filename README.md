@@ -1,5 +1,6 @@
 ## Rbowtie
-[![Build Status](https://travis-ci.com/fmicompbio/Rbowtie.svg?branch=master)](https://travis-ci.com/fmicompbio/Rbowtie)
+[![Build Status (Linux)](https://travis-ci.com/fmicompbio/Rbowtie.svg?branch=master)](https://travis-ci.com/fmicompbio/Rbowtie)
+[![Build status (Windows)](https://ci.appveyor.com/api/projects/status/github/fmicompbio/Rbowtie?branch=master&svg=true)](https://ci.appveyor.com/project/fmicompbio/Rbowtie)
 
 The `Rbowtie` R package provides an R interface to the
 [`bowtie`](http://bowtie-bio.sourceforge.net/index.shtml) short-read aligner by
