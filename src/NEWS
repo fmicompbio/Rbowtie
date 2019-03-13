@@ -5,7 +5,7 @@ Bowtie NEWS
 
    Bowtie is now available for download.  0.9.0 is the first version to
 be released under the OSI Artistic License (see `LICENSE') and freely
-available to the public for download.  The current version is 1.1.0.
+available to the public for download.  The current version is 1.2.1.1.
 
 Reporting Issues
 ================
@@ -25,6 +25,86 @@ subscribe to our mailing list:
 
 Version Release History
 =======================
+
+Version 1.2.2 - Dec 11, 2017
+Update (12/12/2017): We have had to re-release this version of bowtie to address an issue when compiling with pthreads (make NO_TBB=1).
+
+    * Fixed major issue causing corrupt SAM output when using many threads (-p/--threads) on certain systems
+    * Fixed major issue with incorrect alignment offsets being reported in --large-index mode
+    * Fixed major issue with reads files being skipped when multiple inputs were specified together with -p/--threads
+    * The official LICENSE of Bowtie was changed to Artistic License 2.0.  This fixes an issue with the previous LICENSE, which mistakenly combined elements of different open-source licenses.
+    * Fixed issue where bowtie would still run for a long time even when -u was set to a small number.
+    * Fixed spurious "Reads file contained a pattern with more than 1024 quality values" error for some colorspace inputs.
+    * Fixed issue with --strata sometimes failing to suppress alignments at lower strata.
+    * Fixed issue with ends of paired-end reads sometimes appearing in non-adjacent lines of the SAM output with -p/--threads >1
+    * Fixed issue whereby the read name of end #2 was not always truncated at the first whitespace character
+    * Code simplifications
+
+Version 1.2.1.1 - Jun 13, 2017
+    * Fixed an issue causing Bowtie to segfault when processing reads from stdin
+
+Version 1.2.1 - Jun 12, 2017
+- Please note that Bowtie will be switching to the Artistic 2.0 license in the next release.
+- Pre-build binaries now include statically linked TBB and zlib libraries no longer requiring
+  these libraries to be pre-installed
+
+    * Fixed an issue which caused Bowtie to hang during parallell index
+      building when running an optimized binary
+    * Deprecated --refout option.  It will be fully removed in the next
+      release
+    * Added parallel index building with the bowtie2-build --threads
+      option (credit to Aidan Reilly - https://github.com/aidanreilly8)
+    * Added native support for gzipped read files.  The wrapper
+      script is no longer responsible for this, which simplifies the wrapper
+      and improves speed and thread scaling.
+    * Added support for interleaved paired-end FASTQ inputs
+      (--interleaved)
+    * Fixed issue where first character of some read names was 
+      omitted from SAM output when using tabbed input formats
+    * Fixed issue that caused Bowtie to hang when aligning FASTA inputs
+      with more than one thread
+    * Bowtie wrapper now works even when invoked via a symlink in a
+      different directory from the executables
+    * Fixed issue preventing reading --tab5 input on stdin
+    * Added --no-unal option for suppressing unmapped reads in SAM output
+
+Version 1.2.0 - Dec 12, 2016
+    * Code related to read parsing was completely rewritten to improve
+      scalability to many threads.  In short, the critical section is
+      simpler and parses input reads in batches rather than one at a time.
+      The improvement applies to all read formats.
+    * --reads-per-batch command line parameter added to specify the number
+      of reads to read from input file at once
+    * TBB is now the default threading library.  We consistently found TBB to give
+      superior thread scaling.  It is widely available and widely installed.
+      That said, we are also preserving a "legacy" version of Bowtie that,
+      like previous releases, does not use TBB.  To compile Bowtie source
+      in legacy mode use `NO_TBB` (TODO: insert actual flag here).  To
+      use legacy binaries, download the appropriate binary archive with
+      "legacy" in the name.
+    * Bowtie now uses a queue-based lock rather
+      than a spin or heavyweight lock.  We find this gives superior thread
+      scaling; we saw an order-of-magnitude throughput improvements at
+      120 threads in one experiment, for example.
+    * Unnecessary thread synchronization removed
+    * Fixed colorspace parsing when primer base is present
+    * Fixed bugs related to --skip command line option
+
+Version 1.1.2 - Jun 23, 2015
+   * Fixed the building process for OSX Yosemite.
+   * Added the install target for linux to better aid package building process 
+     and the overall installation process.
+   * Added the Intel TBB option which provides in most situations a better performance
+     output. TBB is not present by default in the current build but can be added 
+     by compiling the source code with WITH_TBB=1 option.
+   * Fixed a minor issue related with managing the number of threads spawned.
+   * Fixed a minor issue which may have caused a memory leak after an exception
+     was thrown.
+   * Fixed a bug that caused bowtie to crash if a read was trimmed more than the 
+     read's lenght on 5 prime end.
+   * Added some minor corrections/addition to the manual.
+   * Fixed a bug that caused the wrapper to incorrectly identify the bowtie binary.
+
 
 Version 1.1.1 - Oct 1, 2014
    * Fixed a compiling linkage problem related with Mavericks OSX.

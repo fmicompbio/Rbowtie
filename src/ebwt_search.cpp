@@ -8,6 +8,13 @@
 #include <seqan/find.h>
 #include <getopt.h>
 #include <vector>
+#include <time.h>
+
+#ifndef _WIN32
+#include <dirent.h>
+#include <signal.h>
+#endif
+
 #include "alphabet.h"
 #include "assert_helpers.h"
 #include "endian_swap.h"
@@ -20,8 +27,6 @@
 #include "bitset.h"
 #include "threading.h"
 #include "range_cache.h"
-#include "refmap.h"
-#include "annot.h"
 #include "aligner.h"
 #include "aligner_0mm.h"
 #include "aligner_1mm.h"
@@ -29,8 +34,18 @@
 #include "aligner_seed_mm.h"
 #include "aligner_metrics.h"
 #include "sam.h"
+#include "ebwt_search.h"
 #ifdef CHUD_PROFILING
 #include <CHUD/CHUD.h>
+#endif
+
+static int FNAME_SIZE;
+#ifdef WITH_TBB
+#include <tbb/compat/thread>
+static tbb::atomic<int> thread_counter;
+#else
+static int thread_counter;
+static MUTEX_T thread_counter_mutex;
 #endif
 
 using namespace std;
@@ -59,7 +74,6 @@ static int reportOpps;    // whether to report # of other mappings
 static int offRate;       // keep default offRate
 static int isaRate;       // keep default isaRate
 static int mismatches;    // allow 0 mismatches by default
-static char *patDumpfile; // filename to dump patterns to
 static bool solexaQuals;  // quality strings are solexa quals, not phred, and subtract 64 (not 33)
 static bool phred64Quals; // quality chars are phred, but must subtract 64 (not 33)
 static bool integerQuals; // quality strings are space-separated strings of integers, not ASCII
@@ -70,10 +84,11 @@ static int qualThresh;    // max qual-weighted hamming dist (maq's -e)
 static int maxBtsBetter;  // max # backtracks allowed in half-and-half mode
 static int maxBts;        // max # backtracks allowed in half-and-half mode
 static int nthreads;      // number of pthreads operating concurrently
+static bool reorder;      // reorder SAM output when running multi-threaded
+static int thread_ceiling;// maximum number of threads user wants bowtie to use
+static string thread_stealing_dir; // keep track of pids in this directory
+static bool thread_stealing;// true iff thread stealing is in use
 static output_types outType;  // style of output
-static bool randReadsNoSync;  // true -> generate reads from per-thread random source
-static int numRandomReads;    // # random reads (see Random*PatternSource in pat.h)
-static int lenRandomReads;    // len of random reads (see Random*PatternSource in pat.h)
 static bool noRefNames;       // true -> print reference indexes; not names
 static string dumpAlBase;     // basename of same-format files to dump aligned reads to
 static string dumpUnalBase;   // basename of same-format files to dump unaligned reads to
@@ -82,8 +97,9 @@ static uint32_t khits;  // number of hits per read; >1 is much slower
 static uint32_t mhits;  // don't report any hits if there are > mhits
 static bool better;     // true -> guarantee alignments from best possible stratum
 static bool strata;     // true -> don't stop at stratum boundaries
-static bool refOut;     // if true, alignments go to per-ref files
 static int partitionSz; // output a partitioning key in first field
+static int readsPerBatch; // # reads to read from input file at once
+static size_t outBatchSz; // # alignments to write to output file at once
 static bool noMaqRound; // true -> don't round quals to nearest 10 like maq
 static bool fileParallel; // separate threads read separate input files in parallel
 static bool useShmem;     // use shared memory to hold the index
@@ -107,23 +123,15 @@ static uint32_t skipReads;       // # reads/read pairs to skip
 static bool nofw; // don't align fw orientation of read
 static bool norc; // don't align rc orientation of read
 static bool strandFix;  // attempt to fix strand bias
-static bool randomizeQuals; // randomize quality values
 static bool stats; // print performance stats
 static int chunkPoolMegabytes;    // max MB to dedicate to best-first search frames per thread
 static int chunkSz;    // size of single chunk disbursed by ChunkPool
 static bool chunkVerbose; // have chunk allocator output status messages?
-static bool recal;
-static int recalMaxCycle;
-static int recalMaxQual;
-static int recalQualShift;
 static bool useV1;
 static bool reportSe;
-static const char * refMapFile;  // file containing a map from index coordinates to another coordinate system
-static const char * annotMapFile;  // file containing a map from reference coordinates to annotations
 static size_t fastaContLen;
 static size_t fastaContFreq;
 static bool hadoopOut; // print Hadoop status and summary messages
-static bool fuzzy;
 static bool fullRef;
 static bool samNoQnameTrunc; // don't truncate QNAME field at first whitespace
 static bool samNoHead; // don't print any header lines in SAM output
@@ -145,6 +153,7 @@ static vector<string> qualities2;
 static string wrapper; // Type of wrapper script
 bool gAllowMateContainment;
 bool gReportColorPrimer;
+bool noUnal; // don't print unaligned reads
 MUTEX_T gLock;
 
 static void resetOptions() {
@@ -171,7 +180,6 @@ static void resetOptions() {
 	offRate					= -1; // keep default offRate
 	isaRate					= -1; // keep default isaRate
 	mismatches				= 0; // allow 0 mismatches by default
-	patDumpfile				= NULL; // filename to dump patterns to
 	solexaQuals				= false; // quality strings are solexa quals, not phred, and subtract 64 (not 33)
 	phred64Quals			= false; // quality chars are phred, but must subtract 64 (not 33)
 	integerQuals			= false; // quality strings are space-separated strings of integers, not ASCII
@@ -182,10 +190,12 @@ static void resetOptions() {
 	maxBtsBetter			= 125; // max # backtracks allowed in half-and-half mode
 	maxBts					= 800; // max # backtracks allowed in half-and-half mode
 	nthreads				= 1;     // number of pthreads operating concurrently
+    reorder                 = false; // reorder SAM output
+	thread_ceiling			= 0;     // max # threads user asked for
+	thread_stealing_dir		= ""; // keep track of pids in this directory
+	thread_stealing			= false; // true iff thread stealing is in use
+	FNAME_SIZE				= 200;
 	outType					= OUTPUT_FULL;  // style of output
-	randReadsNoSync			= false; // true -> generate reads from per-thread random source
-	numRandomReads			= 50000000; // # random reads (see Random*PatternSource in pat.h)
-	lenRandomReads			= 35;    // len of random reads (see Random*PatternSource in pat.h)
 	noRefNames				= false; // true -> print reference indexes; not names
 	dumpAlBase				= "";    // basename of same-format files to dump aligned reads to
 	dumpUnalBase			= "";    // basename of same-format files to dump unaligned reads to
@@ -194,8 +204,9 @@ static void resetOptions() {
 	mhits					= 0xffffffff; // don't report any hits if there are > mhits
 	better					= false; // true -> guarantee alignments from best possible stratum
 	strata					= false; // true -> don't stop at stratum boundaries
-	refOut					= false; // if true, alignments go to per-ref files
 	partitionSz				= 0;     // output a partitioning key in first field
+	readsPerBatch			= 16;    // # reads to read from input file at once
+	outBatchSz				= 16;    // # alignments to wrote to output file at once
 	noMaqRound				= false; // true -> don't round quals to nearest 10 like maq
 	fileParallel			= false; // separate threads read separate input files in parallel
 	useShmem				= false; // use shared memory to hold the index
@@ -219,23 +230,15 @@ static void resetOptions() {
 	nofw					= false; // don't align fw orientation of read
 	norc					= false; // don't align rc orientation of read
 	strandFix				= true;  // attempt to fix strand bias
-	randomizeQuals			= false; // randomize quality values
 	stats					= false; // print performance stats
 	chunkPoolMegabytes		= 64;    // max MB to dedicate to best-first search frames per thread
 	chunkSz					= 256;   // size of single chunk disbursed by ChunkPool (in KB)
 	chunkVerbose			= false; // have chunk allocator output status messages?
-	recal					= false;
-	recalMaxCycle			= 64;
-	recalMaxQual			= 40;
-	recalQualShift			= 2;
 	useV1					= true;
 	reportSe				= false;
-	refMapFile				= NULL;  // file containing a map from index coordinates to another coordinate system
-	annotMapFile			= NULL;  // file containing a map from reference coordinates to annotations
 	fastaContLen			= 0;
 	fastaContFreq			= 0;
 	hadoopOut				= false; // print Hadoop status and summary messages
-	fuzzy					= false; // reads will have alternate basecalls w/ qualities
 	fullRef					= false; // print entire reference name instead of just up to 1st space
 	samNoQnameTrunc         = false; // don't truncate at first whitespace?
 	samNoHead				= false; // don't print any header lines in SAM output
@@ -257,6 +260,7 @@ static void resetOptions() {
 	wrapper.clear();
 	gAllowMateContainment	= false; // true -> alignments where one mate lies inside the other are valid
 	gReportColorPrimer		= false; // true -> print flag with trimmed color primer and downstream color
+	noUnal					= false; // true -> do not report unaligned reads
 }
 
 // mating constraints
@@ -266,17 +270,12 @@ static const char *short_options = "fF:qbzhcu:rv:s:at3:5:o:e:n:l:w:p:k:m:M:1:2:I
 enum {
 	ARG_ORIG = 256,
 	ARG_SEED,
-	ARG_DUMP_PATS,
 	ARG_RANGE,
-	ARG_CONCISE,
 	ARG_SOLEXA_QUALS,
 	ARG_MAXBTS,
 	ARG_VERBOSE,
 	ARG_STARTVERBOSE,
 	ARG_QUIET,
-	ARG_RANDOM_READS,
-	ARG_RANDOM_READS_NOSYNC,
-	ARG_NOOUT,
 	ARG_FAST,
 	ARG_AL,
 	ARG_UN,
@@ -286,9 +285,9 @@ enum {
 	ARG_OLDBEST,
 	ARG_BETTER,
 	ARG_BEST,
-	ARG_REFOUT,
 	ARG_ISARATE,
 	ARG_PARTITION,
+	ARG_READS_PER_BATCH,
 	ARG_integerQuals,
 	ARG_NOMAQROUND,
 	ARG_FILEPAR,
@@ -308,7 +307,6 @@ enum {
 	ARG_NO_RC,
 	ARG_SKIP,
 	ARG_STRAND_FIX,
-	ARG_RANDOMIZE_QUALS,
 	ARG_STATS,
 	ARG_ONETWO,
 	ARG_PHRED64,
@@ -316,11 +314,8 @@ enum {
 	ARG_CHUNKMBS,
 	ARG_CHUNKSZ,
 	ARG_CHUNKVERBOSE,
-	ARG_RECAL,
 	ARG_STRATA,
 	ARG_PEV2,
-	ARG_REFMAP,
-	ARG_ANNOTMAP,
 	ARG_REPORTSE,
 	ARG_HADOOPOUT,
 	ARG_FUZZY,
@@ -343,117 +338,117 @@ enum {
 	ARG_QUALS2,
 	ARG_ALLOW_CONTAIN,
 	ARG_COLOR_PRIMER,
-	ARG_WRAPPER
+	ARG_WRAPPER,
+	ARG_INTERLEAVED_FASTQ,
+	ARG_SAM_NO_UNAL,
+	ARG_THREAD_CEILING,
+	ARG_THREAD_PIDDIR,
+	ARG_REORDER_SAM,
 };
 
 static struct option long_options[] = {
-	{(char*)"verbose",      no_argument,       0,            ARG_VERBOSE},
-	{(char*)"startverbose", no_argument,       0,            ARG_STARTVERBOSE},
-	{(char*)"quiet",        no_argument,       0,            ARG_QUIET},
-	{(char*)"sanity",       no_argument,       0,            ARG_SANITY},
-	{(char*)"pause",        no_argument,       &ipause,      1},
-	{(char*)"orig",         required_argument, 0,            ARG_ORIG},
-	{(char*)"all",          no_argument,       0,            'a'},
-	{(char*)"concise",      no_argument,       0,            ARG_CONCISE},
-	{(char*)"noout",        no_argument,       0,            ARG_NOOUT},
-	{(char*)"solexa-quals", no_argument,       0,            ARG_SOLEXA_QUALS},
-	{(char*)"integer-quals",no_argument,       0,            ARG_integerQuals},
-	{(char*)"time",         no_argument,       0,            't'},
-	{(char*)"trim3",        required_argument, 0,            '3'},
-	{(char*)"trim5",        required_argument, 0,            '5'},
-	{(char*)"seed",         required_argument, 0,            ARG_SEED},
-	{(char*)"qupto",        required_argument, 0,            'u'},
-	{(char*)"al",           required_argument, 0,            ARG_AL},
-	{(char*)"un",           required_argument, 0,            ARG_UN},
-	{(char*)"max",          required_argument, 0,            ARG_MAXDUMP},
-	{(char*)"offrate",      required_argument, 0,            'o'},
-	{(char*)"isarate",      required_argument, 0,            ARG_ISARATE},
-	{(char*)"reportopps",   no_argument,       &reportOpps,  1},
-	{(char*)"version",      no_argument,       &showVersion, 1},
-	{(char*)"dumppats",     required_argument, 0,            ARG_DUMP_PATS},
-	{(char*)"maqerr",       required_argument, 0,            'e'},
-	{(char*)"seedlen",      required_argument, 0,            'l'},
-	{(char*)"seedmms",      required_argument, 0,            'n'},
-	{(char*)"filepar",      no_argument,       0,            ARG_FILEPAR},
-	{(char*)"help",         no_argument,       0,            'h'},
-	{(char*)"threads",      required_argument, 0,            'p'},
-	{(char*)"khits",        required_argument, 0,            'k'},
-	{(char*)"mhits",        required_argument, 0,            'm'},
-	{(char*)"minins",       required_argument, 0,            'I'},
-	{(char*)"maxins",       required_argument, 0,            'X'},
-	{(char*)"quals",        required_argument, 0,            'Q'},
-	{(char*)"Q1",           required_argument, 0,            ARG_QUALS1},
-	{(char*)"Q2",           required_argument, 0,            ARG_QUALS2},
-	{(char*)"best",         no_argument,       0,            ARG_BEST},
-	{(char*)"better",       no_argument,       0,            ARG_BETTER},
-	{(char*)"oldbest",      no_argument,       0,            ARG_OLDBEST},
-	{(char*)"strata",       no_argument,       0,            ARG_STRATA},
-	{(char*)"nomaqround",   no_argument,       0,            ARG_NOMAQROUND},
-	{(char*)"refidx",       no_argument,       0,            ARG_REFIDX},
-	{(char*)"range",        no_argument,       0,            ARG_RANGE},
-	{(char*)"maxbts",       required_argument, 0,            ARG_MAXBTS},
-	{(char*)"randread",     no_argument,       0,            ARG_RANDOM_READS},
-	{(char*)"randreadnosync", no_argument,     0,            ARG_RANDOM_READS_NOSYNC},
-	{(char*)"phased",       no_argument,       0,            'z'},
-	{(char*)"refout",       no_argument,       0,            ARG_REFOUT},
-	{(char*)"partition",    required_argument, 0,            ARG_PARTITION},
-	{(char*)"stateful",     no_argument,       0,            ARG_STATEFUL},
-	{(char*)"prewidth",     required_argument, 0,            ARG_PREFETCH_WIDTH},
-	{(char*)"ff",           no_argument,       0,            ARG_FF},
-	{(char*)"fr",           no_argument,       0,            ARG_FR},
-	{(char*)"rf",           no_argument,       0,            ARG_RF},
-	{(char*)"mixthresh",    required_argument, 0,            'x'},
-	{(char*)"pairtries",    required_argument, 0,            ARG_MIXED_ATTEMPTS},
-	{(char*)"noreconcile",  no_argument,       0,            ARG_NO_RECONCILE},
-	{(char*)"cachelim",     required_argument, 0,            ARG_CACHE_LIM},
-	{(char*)"cachesz",      required_argument, 0,            ARG_CACHE_SZ},
-	{(char*)"nofw",         no_argument,       0,            ARG_NO_FW},
-	{(char*)"norc",         no_argument,       0,            ARG_NO_RC},
-	{(char*)"offbase",      required_argument, 0,            'B'},
-	{(char*)"tryhard",      no_argument,       0,            'y'},
-	{(char*)"skip",         required_argument, 0,            's'},
-	{(char*)"strandfix",    no_argument,       0,            ARG_STRAND_FIX},
-	{(char*)"randquals",    no_argument,       0,            ARG_RANDOMIZE_QUALS},
-	{(char*)"stats",        no_argument,       0,            ARG_STATS},
-	{(char*)"12",           required_argument, 0,            ARG_ONETWO},
-	{(char*)"phred33-quals", no_argument,      0,            ARG_PHRED33},
-	{(char*)"phred64-quals", no_argument,      0,            ARG_PHRED64},
-	{(char*)"solexa1.3-quals", no_argument,    0,            ARG_PHRED64},
-	{(char*)"chunkmbs",     required_argument, 0,            ARG_CHUNKMBS},
-	{(char*)"chunksz",      required_argument, 0,            ARG_CHUNKSZ},
-	{(char*)"chunkverbose", no_argument,       0,            ARG_CHUNKVERBOSE},
-	{(char*)"mm",           no_argument,       0,            ARG_MM},
-	{(char*)"shmem",        no_argument,       0,            ARG_SHMEM},
-	{(char*)"mmsweep",      no_argument,       0,            ARG_MMSWEEP},
-	{(char*)"recal",        no_argument,       0,            ARG_RECAL},
-	{(char*)"pev2",         no_argument,       0,            ARG_PEV2},
-	{(char*)"refmap",       required_argument, 0,            ARG_REFMAP},
-	{(char*)"annotmap",     required_argument, 0,            ARG_ANNOTMAP},
-	{(char*)"reportse",     no_argument,       0,            ARG_REPORTSE},
-	{(char*)"hadoopout",    no_argument,       0,            ARG_HADOOPOUT},
-	{(char*)"fuzzy",        no_argument,       0,            ARG_FUZZY},
-	{(char*)"fullref",      no_argument,       0,            ARG_FULLREF},
-	{(char*)"usage",        no_argument,       0,            ARG_USAGE},
-	{(char*)"sam",          no_argument,       0,            'S'},
-	{(char*)"sam-no-qname-trunc", no_argument, 0,            ARG_SAM_NO_QNAME_TRUNC},
-	{(char*)"sam-nohead",   no_argument,       0,            ARG_SAM_NOHEAD},
-	{(char*)"sam-nosq",     no_argument,       0,            ARG_SAM_NOSQ},
-	{(char*)"sam-noSQ",     no_argument,       0,            ARG_SAM_NOSQ},
-	{(char*)"color",        no_argument,       0,            'C'},
-	{(char*)"sam-RG",       required_argument, 0,            ARG_SAM_RG},
-	{(char*)"snpphred",     required_argument, 0,            ARG_SNPPHRED},
-	{(char*)"snpfrac",      required_argument, 0,            ARG_SNPFRAC},
-	{(char*)"suppress",     required_argument, 0,            ARG_SUPPRESS_FIELDS},
-	{(char*)"mapq",         required_argument, 0,            ARG_DEFAULT_MAPQ},
-	{(char*)"col-cseq",     no_argument,       0,            ARG_COLOR_SEQ},
-	{(char*)"col-cqual",    no_argument,       0,            ARG_COLOR_QUAL},
-	{(char*)"col-keepends", no_argument,       0,            ARG_COLOR_KEEP_ENDS},
-	{(char*)"cost",         no_argument,       0,            ARG_COST},
-	{(char*)"showseed",     no_argument,       0,            ARG_SHOWSEED},
-	{(char*)"allow-contain",no_argument,       0,            ARG_ALLOW_CONTAIN},
-	{(char*)"col-primer",   no_argument,       0,            ARG_COLOR_PRIMER},
-	{(char*)"wrapper",      required_argument, 0,            ARG_WRAPPER},
-	{(char*)0, 0, 0, 0} // terminator
+{(char*)"verbose",                           no_argument,        0,                    ARG_VERBOSE},
+{(char*)"startverbose",                      no_argument,        0,                    ARG_STARTVERBOSE},
+{(char*)"quiet",                             no_argument,        0,                    ARG_QUIET},
+{(char*)"sanity",                            no_argument,        0,                    ARG_SANITY},
+{(char*)"pause",                             no_argument,        &ipause,              1},
+{(char*)"orig",                              required_argument,  0,                    ARG_ORIG},
+{(char*)"all",                               no_argument,        0,                    'a'},
+{(char*)"solexa-quals",                      no_argument,        0,                    ARG_SOLEXA_QUALS},
+{(char*)"integer-quals",                     no_argument,        0,                    ARG_integerQuals},
+{(char*)"time",                              no_argument,        0,                    't'},
+{(char*)"trim3",                             required_argument,  0,                    '3'},
+{(char*)"trim5",                             required_argument,  0,                    '5'},
+{(char*)"seed",                              required_argument,  0,                    ARG_SEED},
+{(char*)"qupto",                             required_argument,  0,                    'u'},
+{(char*)"al",                                required_argument,  0,                    ARG_AL},
+{(char*)"un",                                required_argument,  0,                    ARG_UN},
+{(char*)"max",                               required_argument,  0,                    ARG_MAXDUMP},
+{(char*)"offrate",                           required_argument,  0,                    'o'},
+{(char*)"isarate",                           required_argument,  0,                    ARG_ISARATE},
+{(char*)"reportopps",                        no_argument,        &reportOpps,          1},
+{(char*)"version",                           no_argument,        &showVersion,         1},
+{(char*)"reads-per-batch",                   required_argument,  0,                    ARG_READS_PER_BATCH},
+{(char*)"maqerr",                            required_argument,  0,                    'e'},
+{(char*)"seedlen",                           required_argument,  0,                    'l'},
+{(char*)"seedmms",                           required_argument,  0,                    'n'},
+{(char*)"filepar",                           no_argument,        0,                    ARG_FILEPAR},
+{(char*)"help",                              no_argument,        0,                    'h'},
+{(char*)"threads",                           required_argument,  0,                    'p'},
+{(char*)"khits",                             required_argument,  0,                    'k'},
+{(char*)"mhits",                             required_argument,  0,                    'm'},
+{(char*)"minins",                            required_argument,  0,                    'I'},
+{(char*)"maxins",                            required_argument,  0,                    'X'},
+{(char*)"quals",                             required_argument,  0,                    'Q'},
+{(char*)"Q1",                                required_argument,  0,                    ARG_QUALS1},
+{(char*)"Q2",                                required_argument,  0,                    ARG_QUALS2},
+{(char*)"best",                              no_argument,        0,                    ARG_BEST},
+{(char*)"better",                            no_argument,        0,                    ARG_BETTER},
+{(char*)"oldbest",                           no_argument,        0,                    ARG_OLDBEST},
+{(char*)"strata",                            no_argument,        0,                    ARG_STRATA},
+{(char*)"nomaqround",                        no_argument,        0,                    ARG_NOMAQROUND},
+{(char*)"refidx",                            no_argument,        0,                    ARG_REFIDX},
+{(char*)"range",                             no_argument,        0,                    ARG_RANGE},
+{(char*)"maxbts",                            required_argument,  0,                    ARG_MAXBTS},
+{(char*)"phased",                            no_argument,        0,                    'z'},
+{(char*)"partition",                         required_argument,  0,                    ARG_PARTITION},
+{(char*)"stateful",                          no_argument,        0,                    ARG_STATEFUL},
+{(char*)"prewidth",                          required_argument,  0,                    ARG_PREFETCH_WIDTH},
+{(char*)"ff",                                no_argument,        0,                    ARG_FF},
+{(char*)"fr",                                no_argument,        0,                    ARG_FR},
+{(char*)"rf",                                no_argument,        0,                    ARG_RF},
+{(char*)"mixthresh",                         required_argument,  0,                    'x'},
+{(char*)"pairtries",                         required_argument,  0,                    ARG_MIXED_ATTEMPTS},
+{(char*)"noreconcile",                       no_argument,        0,                    ARG_NO_RECONCILE},
+{(char*)"cachelim",                          required_argument,  0,                    ARG_CACHE_LIM},
+{(char*)"cachesz",                           required_argument,  0,                    ARG_CACHE_SZ},
+{(char*)"nofw",                              no_argument,        0,                    ARG_NO_FW},
+{(char*)"norc",                              no_argument,        0,                    ARG_NO_RC},
+{(char*)"offbase",                           required_argument,  0,                    'B'},
+{(char*)"tryhard",                           no_argument,        0,                    'y'},
+{(char*)"skip",                              required_argument,  0,                    's'},
+{(char*)"strandfix",                         no_argument,        0,                    ARG_STRAND_FIX},
+{(char*)"stats",                             no_argument,        0,                    ARG_STATS},
+{(char*)"12",                                required_argument,  0,                    ARG_ONETWO},
+{(char*)"phred33-quals",                     no_argument,        0,                    ARG_PHRED33},
+{(char*)"phred64-quals",                     no_argument,        0,                    ARG_PHRED64},
+{(char*)"solexa1.3-quals",                   no_argument,        0,                    ARG_PHRED64},
+{(char*)"chunkmbs",                          required_argument,  0,                    ARG_CHUNKMBS},
+{(char*)"chunksz",                           required_argument,  0,                    ARG_CHUNKSZ},
+{(char*)"chunkverbose",                      no_argument,        0,                    ARG_CHUNKVERBOSE},
+{(char*)"mm",                                no_argument,        0,                    ARG_MM},
+{(char*)"shmem",                             no_argument,        0,                    ARG_SHMEM},
+{(char*)"mmsweep",                           no_argument,        0,                    ARG_MMSWEEP},
+{(char*)"pev2",                              no_argument,        0,                    ARG_PEV2},
+{(char*)"reportse",                          no_argument,        0,                    ARG_REPORTSE},
+{(char*)"hadoopout",                         no_argument,        0,                    ARG_HADOOPOUT},
+{(char*)"fullref",                           no_argument,        0,                    ARG_FULLREF},
+{(char*)"usage",                             no_argument,        0,                    ARG_USAGE},
+{(char*)"sam",                               no_argument,        0,                    'S'},
+{(char*)"sam-no-qname-trunc",                no_argument,        0,                    ARG_SAM_NO_QNAME_TRUNC},
+{(char*)"sam-nohead",                        no_argument,        0,                    ARG_SAM_NOHEAD},
+{(char*)"sam-nosq",                          no_argument,        0,                    ARG_SAM_NOSQ},
+{(char*)"sam-noSQ",                          no_argument,        0,                    ARG_SAM_NOSQ},
+{(char*)"color",                             no_argument,        0,                    'C'},
+{(char*)"sam-RG",                            required_argument,  0,                    ARG_SAM_RG},
+{(char*)"snpphred",                          required_argument,  0,                    ARG_SNPPHRED},
+{(char*)"snpfrac",                           required_argument,  0,                    ARG_SNPFRAC},
+{(char*)"suppress",                          required_argument,  0,                    ARG_SUPPRESS_FIELDS},
+{(char*)"mapq",                              required_argument,  0,                    ARG_DEFAULT_MAPQ},
+{(char*)"col-cseq",                          no_argument,        0,                    ARG_COLOR_SEQ},
+{(char*)"col-cqual",                         no_argument,        0,                    ARG_COLOR_QUAL},
+{(char*)"col-keepends",                      no_argument,        0,                    ARG_COLOR_KEEP_ENDS},
+{(char*)"cost",                              no_argument,        0,                    ARG_COST},
+{(char*)"showseed",                          no_argument,        0,                    ARG_SHOWSEED},
+{(char*)"allow-contain",no_argument,         0,                  ARG_ALLOW_CONTAIN},
+{(char*)"col-primer",                        no_argument,        0,                    ARG_COLOR_PRIMER},
+{(char*)"wrapper",                           required_argument,  0,                    ARG_WRAPPER},
+{(char*)"interleaved",                       required_argument,  0,                    ARG_INTERLEAVED_FASTQ},
+{(char*)"no-unal",                           no_argument,        0,                    ARG_SAM_NO_UNAL},
+{(char*)"thread-ceiling",required_argument,  0,                  ARG_THREAD_CEILING},
+{(char*)"thread-piddir",                     required_argument,  0,                    ARG_THREAD_PIDDIR},
+{(char*)"reorder",                           no_argument,        0,                    ARG_REORDER_SAM},
+{(char*)0,                                   0,                  0,                    0} //  terminator
 };
 
 /**
@@ -461,16 +456,16 @@ static struct option long_options[] = {
  */
 static void printUsage(ostream& out) {
 #ifdef BOWTIE_64BIT_INDEX
-	string tool_name = "bowtie-build-l";
+	string tool_name = "bowtie-align-l";
 #else
-	string tool_name = "bowtie-build-s";
+	string tool_name = "bowtie-align-s";
 #endif
 	if(wrapper == "basic-0") {
 		tool_name = "bowtie";
 	}
 
 	out << "Usage: " << endl
-        << tool_name << " [options]* <ebwt> {-1 <m1> -2 <m2> | --12 <r> | <s>} [<hit>]" << endl
+        << tool_name << " [options]* <ebwt> {-1 <m1> -2 <m2> | --12 <r> | --interleaved <i> | <s>} [<hit>]" << endl
         << endl
 	    << "  <m1>    Comma-separated list of files containing upstream mates (or the" << endl
 	    << "          sequences themselves, if -c is set) paired with mates in <m2>" << endl
@@ -478,6 +473,7 @@ static void printUsage(ostream& out) {
 	    << "          sequences themselves if -c is set) paired with mates in <m1>" << endl
 	    << "  <r>     Comma-separated list of files containing Crossbow-style reads.  Can be" << endl
 	    << "          a mixture of paired and unpaired.  Specify \"-\" for stdin." << endl
+	    << "  <i>     Files with interleaved paired-end FASTQ reads." << endl
 	    << "  <s>     Comma-separated list of files containing unpaired reads, or the" << endl
 	    << "          sequences themselves, if -c is set.  Specify \"-\" for stdin." << endl
 	    << "  <hit>   File to write hits to (default: stdout)" << endl
@@ -516,6 +512,7 @@ static void printUsage(ostream& out) {
 	    << "  --pairtries <int>  max # attempts to find mate for anchor hit (default: 100)" << endl
 	    << "  -y/--tryhard       try hard to find valid alignments, at the expense of speed" << endl
 	    << "  --chunkmbs <int>   max megabytes of RAM for best-first search frames (def: 64)" << endl
+	    << " --reads-per-batch   # of reads to read from input file at once (default: 16)" << endl
 	    << "Reporting:" << endl
 	    << "  -k <int>           report up to <int> good alignments per read (default: 1)" << endl
 	    << "  -a/--all           report all alignments per read (much slower than low -k)" << endl
@@ -527,10 +524,10 @@ static void printUsage(ostream& out) {
 	    << "  -t/--time          print wall-clock time taken by search phases" << endl
 	    << "  -B/--offbase <int> leftmost ref offset = <int> in bowtie output (default: 0)" << endl
 	    << "  --quiet            print nothing but the alignments" << endl
-	    << "  --refout           write alignments to files refXXXXX.map, 1 map per reference" << endl
 	    << "  --refidx           refer to ref. seqs by 0-based index rather than name" << endl
 	    << "  --al <fname>       write aligned reads/pairs to file(s) <fname>" << endl
 	    << "  --un <fname>       write unaligned reads/pairs to file(s) <fname>" << endl
+	    << "  --no-unal          suppress SAM records for unaligned reads" << endl
 	    << "  --max <fname>      write reads/pairs over -m limit to file(s) <fname>" << endl
 	    << "  --suppress <cols>  suppresses given columns (comma-delim'ed) in default output" << endl
 	    << "  --fullref          write entire ref name (default: only up to 1st space)" << endl
@@ -655,6 +652,7 @@ static void parseOptions(int argc, const char **argv) {
 			case '1': tokenize(optarg, ",", mates1); break;
 			case '2': tokenize(optarg, ",", mates2); break;
 			case ARG_ONETWO: tokenize(optarg, ",", mates12); format = TAB_MATE; break;
+			case ARG_INTERLEAVED_FASTQ: tokenize(optarg, ",", mates12); format = INTERLEAVED; break;
 			case 'f': format = FASTA; break;
 			case 'F': {
 				format = FASTA_CONT;
@@ -679,18 +677,8 @@ static void parseOptions(int argc, const char **argv) {
 			case ARG_FF: mate1fw = true;  mate2fw = true;  mateFwSet = true; break;
 			case ARG_RF: mate1fw = false; mate2fw = true;  mateFwSet = true; break;
 			case ARG_FR: mate1fw = true;  mate2fw = false; mateFwSet = true; break;
-			case ARG_RANDOM_READS: format = RANDOM; break;
-			case ARG_RANDOM_READS_NOSYNC:
-				format = RANDOM;
-				randReadsNoSync = true;
-				break;
 			case ARG_RANGE: rangeMode = true; break;
-			case ARG_CONCISE: outType = OUTPUT_CONCISE; break;
 			case 'S': outType = OUTPUT_SAM; break;
-			case ARG_REFOUT: refOut = true; break;
-			case ARG_NOOUT: outType = OUTPUT_NONE; break;
-			case ARG_REFMAP: refMapFile = optarg; break;
-			case ARG_ANNOTMAP: annotMapFile = optarg; break;
 			case ARG_SHMEM: useShmem = true; break;
 			case ARG_COLOR_SEQ: colorSeq = true; break;
 			case ARG_COLOR_QUAL: colorQual = true; break;
@@ -748,7 +736,6 @@ static void parseOptions(int argc, const char **argv) {
 			}
 			case ARG_REFIDX: noRefNames = true; break;
 			case ARG_STATEFUL: stateful = true; break;
-			case ARG_FUZZY: fuzzy = true; break;
 			case ARG_REPORTSE: reportSe = true; break;
 			case ARG_FULLREF: fullRef = true; break;
 			case ARG_PREFETCH_WIDTH:
@@ -802,6 +789,15 @@ static void parseOptions(int argc, const char **argv) {
 			case 'p':
 				nthreads = parseInt(1, "-p/--threads arg must be at least 1");
 				break;
+			case ARG_THREAD_CEILING:
+				thread_ceiling = parseInt(0, "--thread-ceiling must be at least 0");
+				break;
+			case ARG_THREAD_PIDDIR:
+				thread_stealing_dir = optarg;
+				break;
+			case ARG_REORDER_SAM:
+				reorder = true;
+				break;
 			case ARG_FILEPAR:
 				fileParallel = true;
 				break;
@@ -820,7 +816,6 @@ static void parseOptions(int argc, const char **argv) {
 			case ARG_USAGE: printUsage(cout); throw 0; break;
 			case 'a': allHits = true; break;
 			case 'y': tryHard = true; break;
-			case ARG_RECAL: recal = true; break;
 			case ARG_CHUNKMBS: chunkPoolMegabytes = parseInt(1, "--chunkmbs arg must be at least 1"); break;
 			case ARG_CHUNKSZ: chunkSz = parseInt(1, "--chunksz arg must be at least 1"); break;
 			case ARG_CHUNKVERBOSE: chunkVerbose = true; break;
@@ -839,6 +834,7 @@ static void parseOptions(int argc, const char **argv) {
 			case ARG_SAM_NO_QNAME_TRUNC: samNoQnameTrunc = true; break;
 			case ARG_SAM_NOHEAD: samNoHead = true; break;
 			case ARG_SAM_NOSQ: samNoSQ = true; break;
+			case ARG_SAM_NO_UNAL: noUnal = true; break;
 			case ARG_SAM_RG: {
 				if(!rgs.empty()) rgs += '\t';
 				rgs += optarg;
@@ -853,10 +849,18 @@ static void parseOptions(int argc, const char **argv) {
 				maxBtsBetter = maxBts;
 				break;
 			}
-			case ARG_DUMP_PATS: patDumpfile = optarg; break;
 			case ARG_STRAND_FIX: strandFix = true; break;
-			case ARG_RANDOMIZE_QUALS: randomizeQuals = true; break;
 			case ARG_PARTITION: partitionSz = parse<int>(optarg); break;
+			case ARG_READS_PER_BATCH: {
+				if(optarg == NULL || parse<int>(optarg) < 1) {
+					cerr << "--reads-per-batch arg must be at least 1" << endl;
+					printUsage(cerr);
+					throw 1;
+				}
+				// TODO: should output batch size be controlled separately?
+				readsPerBatch = outBatchSz = parse<int>(optarg);
+				break;
+			}
 			case ARG_ORIG:
 				if(optarg == NULL || strlen(optarg) == 0) {
 					cerr << "--orig arg must be followed by a string" << endl;
@@ -874,7 +878,16 @@ static void parseOptions(int argc, const char **argv) {
 				throw 1;
 		}
 	} while(next_option != -1);
-	bool paired = mates1.size() > 0 || mates2.size() > 0 || mates12.size() > 0;
+
+	if (nthreads == 1 && !thread_stealing) {
+		reorder = false;
+	}
+	if (reorder == true && outType != OUTPUT_SAM) {
+		cerr << "Bowtie will attempt to reorder its output only when outputting SAM." << endl
+			<< "Please specify the `-S` parameter if you intend on using this option." << endl;
+		reorder = false;
+	}
+	//bool paired = mates1.size() > 0 || mates2.size() > 0 || mates12.size() > 0;
 	if(rangeMode) {
 		// Tell the Ebwt loader to ignore the suffix-array portion of
 		// the index.  We don't need it because the user isn't asking
@@ -964,10 +977,6 @@ static void parseOptions(int argc, const char **argv) {
 		cerr << "--strata has no effect unless combined with -m, -a, or -k N where N > 1" << endl;
 		throw 1;
 	}
-	if(fuzzy && (!stateful && !paired)) {
-		cerr << "--fuzzy must be combined with --best or paired-end alignment" << endl;
-		throw 1;
-	}
 	// If both -s and -u are used, we need to adjust qUpto accordingly
 	// since it uses patid to know if we've reached the -u limit (and
 	// patids are all shifted up by skipReads characters)
@@ -980,10 +989,6 @@ static void parseOptions(int argc, const char **argv) {
 	}
 	if(snpPhred <= 10 && color && !quiet) {
 		cerr << "Warning: the colorspace SNP penalty (--snpphred) is very low: " << snpPhred << endl;
-	}
-	if(outType == OUTPUT_SAM && refOut) {
-		cerr << "Error: --refout cannot be combined with -S/--sam" << endl;
-		throw 1;
 	}
 	if(!mateFwSet) {
 		if(color) {
@@ -1001,14 +1006,23 @@ static void parseOptions(int argc, const char **argv) {
 		cerr << "         --suppress is only available for the default output type." << endl;
 		suppressOuts.clear();
 	}
+	thread_stealing = thread_ceiling > nthreads;
+#ifdef _WIN32
+	thread_stealing = false;
+#endif
+	if(thread_stealing && thread_stealing_dir.empty()) {
+		cerr << "When --thread-ceiling is specified, must also specify --thread-piddir" << endl;
+		throw 1;
+	}
 }
 
 static const char *argv0 = NULL;
 
 #define FINISH_READ(p) \
 	/* Don't do finishRead if the read isn't legit or if the read was skipped by the doneMask */ \
-	if(!p->empty()) { \
+	if(get_read_ret.first) { \
 		sink->finishRead(*p, true, !skipped); \
+		get_read_ret.first = false; \
 	} \
 	skipped = false;
 
@@ -1016,12 +1030,17 @@ static const char *argv0 = NULL;
 /// whether the result is empty or the patid exceeds the limit, and
 /// marshaling the read into convenient variables.
 #define GET_READ(p) \
-	p->nextReadPair(); \
-	if(p->empty() || p->patid() >= qUpto) { \
-		p->bufa().clearAll(); \
-		break; \
+	if(get_read_ret.second) break; \
+	get_read_ret = p->nextReadPair(); \
+	if(p->rdid() >= qUpto) { \
+		get_read_ret = make_pair(false, true); \
 	} \
-	assert(!empty(p->bufa().patFw)); \
+	if(!get_read_ret.first) { \
+		if(get_read_ret.second) { \
+			break; \
+		} \
+		continue; \
+	} \
 	String<Dna5>& patFw  = p->bufa().patFw;  \
 	patFw.data_begin += 0; /* suppress "unused" compiler warning */ \
 	String<Dna5>& patRc  = p->bufa().patRc;  \
@@ -1036,32 +1055,8 @@ static const char *argv0 = NULL;
 	patRcRev.data_begin += 0; /* suppress "unused" compiler warning */ \
 	String<char>& name   = p->bufa().name;   \
 	name.data_begin += 0; /* suppress "unused" compiler warning */ \
-	uint32_t      patid  = p->patid();       \
+	uint32_t      patid  = (uint32_t)p->rdid();       \
 	params.setPatId(patid);
-
-/// Macro for getting the forward oriented version of next read,
-/// possibly aborting depending on whether the result is empty or the
-/// patid exceeds the limit, and marshaling the read into convenient
-/// variables.
-#define GET_READ_FW(p) \
-	p->nextReadPair(); \
-	if(p->empty() || p->patid() >= qUpto) { \
-		p->bufa().clearAll(); \
-		break; \
-	} \
-	params.setPatId(p->patid()); \
-	assert(!empty(p->bufa().patFw)); \
-	String<Dna5>& patFw  = p->bufa().patFw;  \
-	patFw.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<char>& qual = p->bufa().qual; \
-	qual.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<Dna5>& patFwRev  = p->bufa().patFwRev;  \
-	patFwRev.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<char>& qualRev = p->bufa().qualRev; \
-	qualRev.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<char>& name   = p->bufa().name;   \
-	name.data_begin += 0; /* suppress "unused" compiler warning */ \
-	uint32_t      patid  = p->patid();
 
 #define WORKER_EXIT() \
 	patsrcFact->destroy(patsrc); \
@@ -1081,13 +1076,9 @@ static const char *argv0 = NULL;
 /// Create a PatternSourcePerThread for the current thread according
 /// to the global params and return a pointer to it
 static PatternSourcePerThreadFactory*
-createPatsrcFactory(PairedPatternSource& _patsrc, int tid) {
+createPatsrcFactory(PatternComposer& _patsrc, int tid, uint32_t max_buf) {
 	PatternSourcePerThreadFactory *patsrcFact;
-	if(randReadsNoSync) {
-		patsrcFact = new RandomPatternSourcePerThreadFactory(numRandomReads, lenRandomReads, nthreads, tid);
-	} else {
-		patsrcFact = new WrappedPatternSourcePerThreadFactory(_patsrc);
-	}
+	patsrcFact = new PatternSourcePerThreadFactory(_patsrc, max_buf, skipReads, seed);
 	assert(patsrcFact != NULL);
 	return patsrcFact;
 }
@@ -1097,16 +1088,16 @@ createPatsrcFactory(PairedPatternSource& _patsrc, int tid) {
  * global params and return a pointer to it.
  */
 static HitSinkPerThreadFactory*
-createSinkFactory(HitSink& _sink) {
+createSinkFactory(HitSink& _sink, size_t threadId) {
 	HitSinkPerThreadFactory *sink = NULL;
 	if(!strata) {
 		// Unstratified
 		if(!allHits) {
 			// First N good; "good" inherently ignores strata
-			sink = new NGoodHitSinkPerThreadFactory(_sink, khits, mhits);
+			sink = new NGoodHitSinkPerThreadFactory(_sink, khits, mhits, defaultMapq, threadId);
 		} else {
 			// All hits, spanning strata
-			sink = new AllHitSinkPerThreadFactory(_sink, mhits);
+			sink = new AllHitSinkPerThreadFactory(_sink, mhits, defaultMapq, threadId);
 		}
 	} else {
 		// Stratified
@@ -1115,39 +1106,145 @@ createSinkFactory(HitSink& _sink) {
 			assert(stateful);
 			// Buffer best hits, assuming they're arriving in best-
 			// to-worst order
-			sink = new NBestFirstStratHitSinkPerThreadFactory(_sink, khits, mhits);
+			sink = new NBestFirstStratHitSinkPerThreadFactory(_sink, khits, mhits, defaultMapq, threadId);
 		} else {
 			assert(stateful);
 			// Buffer best hits, assuming they're arriving in best-
 			// to-worst order
-			sink = new NBestFirstStratHitSinkPerThreadFactory(_sink, 0xffffffff/2, mhits);
+			sink = new NBestFirstStratHitSinkPerThreadFactory(_sink, 0xffffffff/2, mhits, defaultMapq, threadId);
 		}
 	}
 	assert(sink != NULL);
 	return sink;
 }
 
+void increment_thread_counter() {
+#ifdef WITH_TBB
+	thread_counter.fetch_and_increment();
+#else
+	ThreadSafe ts(&thread_counter_mutex);
+	thread_counter++;
+#endif
+}
+
+void decrement_thread_counter() {
+#ifdef WITH_TBB
+	thread_counter.fetch_and_decrement();
+#else
+	ThreadSafe ts(&thread_counter_mutex);
+	thread_counter--;
+#endif
+}
+
+#ifndef _WIN32
+void del_pid(const char* dirname,int pid) {
+	struct stat finfo;
+	char* fname = (char*) calloc(FNAME_SIZE,sizeof(char));
+	sprintf(fname,"%s/%d",dirname,pid);
+	if(stat( fname, &finfo) != 0) {
+		free(fname);
+		return;
+	}
+	unlink(fname);
+	free(fname);
+} 
+
+//from http://stackoverflow.com/questions/18100097/portable-way-to-check-if-directory-exists-windows-linux-c
+static void write_pid(const char* dirname,int pid) {
+	struct stat dinfo;
+	if(stat(dirname, &dinfo) != 0) {
+		mkdir(dirname,0755);
+	}
+	char* fname = (char*) calloc(FNAME_SIZE,sizeof(char));
+	sprintf(fname,"%s/%d",dirname,pid);
+	FILE* f = fopen(fname,"w");
+	fclose(f);
+	free(fname);
+}
+
+//from  http://stackoverflow.com/questions/612097/how-can-i-get-the-list-of-files-in-a-directory-using-c-or-c
+static int read_dir(const char* dirname,int* num_pids) {
+	DIR *dir;
+	struct dirent *ent;
+	char* fname = (char*) calloc(FNAME_SIZE,sizeof(char));
+	int lowest_pid = -1;
+	if ((dir = opendir (dirname)) != NULL) {
+		while ((ent = readdir (dir)) != NULL) {
+			if(ent->d_name[0] == '.')
+				continue;
+			int pid = atoi(ent->d_name);
+			sprintf(fname,"/proc/%s", ent->d_name);
+			if(kill(pid, 0) != 0) {
+				//deleting pids can lead to race conditions if
+				//2 or more BT2 processes both try to delete
+				//so just skip instead
+				//del_pid(dirname,pid);
+				continue;
+			}
+			(*num_pids)++;
+			if(pid < lowest_pid || lowest_pid == -1)
+				lowest_pid = pid;
+		}
+		closedir (dir);
+	} else {
+		perror (""); // could not open directory
+	}
+	free(fname);
+	return lowest_pid;
+}
+
+static bool steal_thread(int pid, int orig_nthreads) {
+	int ncpu = thread_ceiling;
+	if(thread_ceiling <= nthreads) {
+		return false;
+	}
+	int num_pids = 0;
+	int lowest_pid = read_dir(thread_stealing_dir.c_str(), &num_pids);
+	if(lowest_pid != pid) {
+		return false;
+	}
+	int in_use = ((num_pids-1) * orig_nthreads) + nthreads; //in_use is now baseline + ours
+	float spare = ncpu - in_use;
+	int spare_r = floor(spare);
+	float r = rand() % 100/100.0;
+	if(r <= (spare - spare_r)) {
+		spare_r = ceil(spare);
+	}
+	return spare_r > 0;
+}
+#endif
+
 /**
  * Search through a single (forward) Ebwt index for exact end-to-end
  * hits.  Assumes that index is already loaded into memory.
  */
-static PairedPatternSource*   exactSearch_patsrc;
+static PatternComposer*   exactSearch_patsrc;
 static HitSink*               exactSearch_sink;
 static Ebwt<String<Dna> >*    exactSearch_ebwt;
 static vector<String<Dna5> >* exactSearch_os;
 static BitPairReference*      exactSearch_refs;
+#ifdef WITH_TBB
+//void exactSearchWorker::operator()() const {
+static void exactSearchWorker(void *vp) {
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
 static void exactSearchWorker(void *vp) {
 	int tid = *((int*)vp);
-	PairedPatternSource& _patsrc = *exactSearch_patsrc;
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer& _patsrc = *exactSearch_patsrc;
 	HitSink& _sink               = *exactSearch_sink;
 	Ebwt<String<Dna> >& ebwt     = *exactSearch_ebwt;
 	vector<String<Dna5> >& os    = *exactSearch_os;
 	const BitPairReference* refs =  exactSearch_refs;
 
 	// Per-thread initialization
-	PatternSourcePerThreadFactory *patsrcFact = createPatsrcFactory(_patsrc, tid);
+	PatternSourcePerThreadFactory *patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
 	PatternSourcePerThread *patsrc = patsrcFact->create();
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink);
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 	HitSinkPerThread* sink = sinkFact->create();
 	EbwtSearchParams<String<Dna> > params(
 	        *sink,      // HitSink
@@ -1167,30 +1264,81 @@ static void exactSearchWorker(void *vp) {
 	        verbose,        // verbose
 	        &os,
 	        false);         // considerQuals
+	pair<bool, bool> get_read_ret = make_pair(false, false);
 	bool skipped = false;
-	while(true) {
+#ifdef PER_THREAD_TIMING
+	uint64_t ncpu_changeovers = 0;
+	uint64_t nnuma_changeovers = 0;
+	
+	int current_cpu = 0, current_node = 0;
+	get_cpu_and_node(current_cpu, current_node);
+
+	std::stringstream ss;
+	std::string msg;
+	ss << "thread: " << tid << " time: ";
+	msg = ss.str();
+	{
+		Timer timer(std::cout, msg.c_str());
+#endif
+		while(true) {
+#ifdef PER_THREAD_TIMING
+			int cpu = 0, node = 0;
+			get_cpu_and_node(cpu, node);
+			if(cpu != current_cpu) {
+				ncpu_changeovers++;
+				current_cpu = cpu;
+			}
+			if(node != current_node) {
+				nnuma_changeovers++;
+				current_node = node;
+			}
+#endif
+			FINISH_READ(patsrc);
+			GET_READ(patsrc);
+			#include "search_exact.c"
+		}
 		FINISH_READ(patsrc);
-		GET_READ(patsrc);
-		#include "search_exact.c"
+		if(thread_stealing) {
+			decrement_thread_counter();
+		}
+#ifdef PER_THREAD_TIMING
+		ss.str("");
+		ss.clear();
+		ss << "thread: " << tid << " cpu_changeovers: " << ncpu_changeovers << std::endl
+		   << "thread: " << tid << " node_changeovers: " << nnuma_changeovers << std::endl;
+		std::cout << ss.str();
 	}
-	FINISH_READ(patsrc);
+#endif
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
 	WORKER_EXIT();
 }
 
 /**
  * A statefulness-aware worker driver.  Uses UnpairedExactAlignerV1.
  */
+#ifdef WITH_TBB
+//void exactSearchWorkerStateful::operator()() const {
+static void exactSearchWorkerStateful(void *vp) {
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
 static void exactSearchWorkerStateful(void *vp) {
 	int tid = *((int*)vp);
-	PairedPatternSource& _patsrc = *exactSearch_patsrc;
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer& _patsrc = *exactSearch_patsrc;
 	HitSink& _sink               = *exactSearch_sink;
 	Ebwt<String<Dna> >& ebwt     = *exactSearch_ebwt;
 	vector<String<Dna5> >& os    = *exactSearch_os;
 	BitPairReference* refs       =  exactSearch_refs;
 
 	// Global initialization
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid);
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink);
+	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 
 	ChunkPool *pool = new ChunkPool(chunkSz * 1024, chunkPoolMegabytes * 1024 * 1024, chunkVerbose);
 	UnpairedExactAlignerV1Factory alSEfact(
@@ -1251,13 +1399,20 @@ static void exactSearchWorkerStateful(void *vp) {
 				alPEfact,
 				*patsrcFact);
 		// Run that mother
-		multi.run();
+		multi.run(false, tid);
 		// MultiAligner must be destroyed before patsrcFact
+	}
+
+	if(thread_stealing) {
+		decrement_thread_counter();
 	}
 
 	delete patsrcFact;
 	delete sinkFact;
 	delete pool;
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
 	return;
 }
 
@@ -1278,7 +1433,7 @@ static void exactSearchWorkerStateful(void *vp) {
  * Search through a single (forward) Ebwt index for exact end-to-end
  * hits.  Assumes that index is already loaded into memory.
  */
-static void exactSearch(PairedPatternSource& _patsrc,
+static void exactSearch(PatternComposer& _patsrc,
                         HitSink& _sink,
                         Ebwt<String<Dna> >& ebwt,
                         vector<String<Dna5> >& os)
@@ -1304,28 +1459,131 @@ static void exactSearch(PairedPatternSource& _patsrc,
 		if(!refs->loaded()) throw 1;
 	}
 	exactSearch_refs   = refs;
+	int tids[max(nthreads, thread_ceiling)];
+#ifdef WITH_TBB
+	vector<std::thread*> threads;
+	vector<thread_tracking_pair> tps;
+	tps.reserve(max(nthreads, thread_ceiling));
+#else
+	vector<tthread::thread*> threads;
+#endif
 
-	AutoArray<tthread::thread*> threads(nthreads);
-	AutoArray<int> tids(nthreads);
-
+#ifdef WITH_TBB
+	tbb::atomic<int> all_threads_done;
+	all_threads_done = 0;
+#endif
 	CHUD_START();
 	{
 		Timer _t(cerr, "Time for 0-mismatch search: ", timing);
 
+#ifndef _WIN32
+		int pid = 0;
+		if(thread_stealing) {
+			pid = getpid();
+			write_pid(thread_stealing_dir.c_str(), pid);
+			thread_counter = 0;
+		}
+#endif
+		
 		for(int i = 0; i < nthreads; i++) {
-			tids[i] = i+1;
-			if(stateful) {
-                                threads[i] = new tthread::thread(exactSearchWorkerStateful, (void*)&tids[i]);
-			} else {
-                                threads[i] = new tthread::thread(exactSearchWorker, (void*)&tids[i]);
+			tids[i] = i;
+#ifdef WITH_TBB
+			tps[i].tid = i;
+			tps[i].done = &all_threads_done;
+			if (i == nthreads - 1) {
+				if(stateful) {
+					exactSearchWorkerStateful((void*)&tps[i]);
+				} else {
+					exactSearchWorker((void*)&tps[i]);
+				}
 			}
+			else {
+				if(stateful) {
+					threads.push_back(new std::thread(exactSearchWorkerStateful, (void*)&tps[i]));
+				} else {
+					threads.push_back(new std::thread(exactSearchWorker, (void*)&tps[i]));
+				}
+				threads[i]->detach();
+				SLEEP(10);
+			}
+#else
+			if (i == nthreads - 1) {
+				if(stateful) {
+					exactSearchWorkerStateful((void*)(tids + i));
+				} else {
+					exactSearchWorker((void*)(tids + i));
+				}
+			}
+			else {
+				if(stateful) {
+					threads.push_back(new tthread::thread(exactSearchWorkerStateful, (void *)(tids + i)));
+				} else {
+					threads.push_back(new tthread::thread(exactSearchWorker, (void *)(tids + i)));
+				}
+			}
+#endif
 		}
 
-		for(int i = 0; i < nthreads; i++) 
-                    threads[i]->join();
+#ifndef _WIN32
+		if(thread_stealing) {
+			int orig_threads = nthreads, steal_ctr = 1;
+			for(int j = 0; j < 10; j++) {
+				sleep(1);
+			}
+			while(thread_counter > 0) {
+				if(steal_thread(pid, orig_threads)) { 
+					nthreads++;
+					tids[nthreads-1] = nthreads;
+#ifdef WITH_TBB
+					tps[nthreads-1].tid = nthreads - 1;
+					tps[nthreads-1].done = &all_threads_done;
+					if(stateful) {
+						threads.push_back(new std::thread(exactSearchWorkerStateful, (void*)&tps[nthreads-1]));
+					} else {
+						threads.push_back(new std::thread(exactSearchWorker, (void*)&tps[nthreads-1]));
+					}
+					threads[nthreads-1]->detach();
+					SLEEP(10);
+#else
+					if(stateful) {
+						threads.push_back(new tthread::thread(exactSearchWorkerStateful, (void *)(tids + nthreads - 1)));
+					} else {
+						threads.push_back(new tthread::thread(exactSearchWorker, (void *)(tids + nthreads - 1)));
+					}
+#endif
+					cerr << "pid " << pid << " started new worker # " << nthreads << endl;
+				}
+				steal_ctr++;
+				for(int j = 0; j < 10; j++) {
+					sleep(1);
+				}
+			}
+		}
+#endif
+		
+#ifdef WITH_TBB
+		while(all_threads_done < nthreads) {
+			SLEEP(10);
+		}
+#else
+		for (int i = 0; i < nthreads - 1; i++) {
+			threads[i]->join();
+		}
+#endif
 
+#ifndef _WIN32
+		if(thread_stealing) {
+			del_pid(thread_stealing_dir.c_str(), pid);
+		}
+#endif
 	}
 	if(refs != NULL) delete refs;
+
+	for (int i = 0; i < nthreads - 1; i++) {
+		if (threads[i] != NULL) {
+			delete threads[i];
+		}
+	}
 }
 
 /**
@@ -1337,7 +1595,7 @@ static void exactSearch(PairedPatternSource& _patsrc,
  * Forward Ebwt (ebwtFw) is already loaded into memory and backward
  * Ebwt (ebwtBw) is not loaded into memory.
  */
-static PairedPatternSource*           mismatchSearch_patsrc;
+static PatternComposer*           mismatchSearch_patsrc;
 static HitSink*                       mismatchSearch_sink;
 static Ebwt<String<Dna> >*            mismatchSearch_ebwtFw;
 static Ebwt<String<Dna> >*            mismatchSearch_ebwtBw;
@@ -1349,9 +1607,19 @@ static BitPairReference*              mismatchSearch_refs;
 /**
  * A statefulness-aware worker driver.  Uses Unpaired/Paired1mmAlignerV1.
  */
+#ifdef WITH_TBB
+//void mismatchSearchWorkerFullStateful::operator()() const {
+static void mismatchSearchWorkerFullStateful(void *vp) {
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
 static void mismatchSearchWorkerFullStateful(void *vp) {
 	int tid = *((int*)vp);
-	PairedPatternSource&   _patsrc = *mismatchSearch_patsrc;
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer&   _patsrc = *mismatchSearch_patsrc;
 	HitSink&               _sink   = *mismatchSearch_sink;
 	Ebwt<String<Dna> >&    ebwtFw  = *mismatchSearch_ebwtFw;
 	Ebwt<String<Dna> >&    ebwtBw  = *mismatchSearch_ebwtBw;
@@ -1359,8 +1627,8 @@ static void mismatchSearchWorkerFullStateful(void *vp) {
 	BitPairReference*      refs    =  mismatchSearch_refs;
 
 	// Global initialization
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid);
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink);
+	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 	ChunkPool *pool = new ChunkPool(chunkSz * 1024, chunkPoolMegabytes * 1024 * 1024, chunkVerbose);
 
 	Unpaired1mmAlignerV1Factory alSEfact(
@@ -1421,19 +1689,35 @@ static void mismatchSearchWorkerFullStateful(void *vp) {
 				alPEfact,
 				*patsrcFact);
 		// Run that mother
-		multi.run();
+		multi.run(false, tid);
 		// MultiAligner must be destroyed before patsrcFact
 	}
+
+	if(thread_stealing) {
+		decrement_thread_counter();
+	}
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
 
 	delete patsrcFact;
 	delete sinkFact;
 	delete pool;
 	return;
 }
-
+#ifdef WITH_TBB
+//void mismatchSearchWorkerFull::operator()() const {
+static void mismatchSearchWorkerFull(void *vp){
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
 static void mismatchSearchWorkerFull(void *vp){
 	int tid = *((int*)vp);
-	PairedPatternSource&   _patsrc   = *mismatchSearch_patsrc;
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer&   _patsrc   = *mismatchSearch_patsrc;
 	HitSink&               _sink     = *mismatchSearch_sink;
 	Ebwt<String<Dna> >&    ebwtFw    = *mismatchSearch_ebwtFw;
 	Ebwt<String<Dna> >&    ebwtBw    = *mismatchSearch_ebwtBw;
@@ -1441,9 +1725,9 @@ static void mismatchSearchWorkerFull(void *vp){
 	const BitPairReference* refs     =  mismatchSearch_refs;
 
 	// Per-thread initialization
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid);
+	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
 	PatternSourcePerThread* patsrc = patsrcFact->create();
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink);
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 	HitSinkPerThread* sink = sinkFact->create();
 	EbwtSearchParams<String<Dna> > params(
 	        *sink,      // HitSinkPerThread
@@ -1464,27 +1748,65 @@ static void mismatchSearchWorkerFull(void *vp){
 	        &os,
 	        false);         // considerQuals
 	bool skipped = false;
-	while(true) {
+	pair<bool, bool> get_read_ret = make_pair(false, false);
+#ifdef PER_THREAD_TIMING
+	uint64_t ncpu_changeovers = 0;
+	uint64_t nnuma_changeovers = 0;
+	
+	int current_cpu = 0, current_node = 0;
+	get_cpu_and_node(current_cpu, current_node);
+
+	std::stringstream ss;
+	std::string msg;
+	ss << "thread: " << tid << " time: ";
+	msg = ss.str();
+	{	
+		Timer timer(std::cout, msg.c_str());
+#endif
+		while(true) {
+#ifdef PER_THREAD_TIMING
+			int cpu = 0, node = 0;
+			get_cpu_and_node(cpu, node);
+			if(cpu != current_cpu) {
+				ncpu_changeovers++;
+				current_cpu = cpu;
+			}
+			if(node != current_node) {
+				nnuma_changeovers++;
+				current_node = node;
+			}
+#endif
+			FINISH_READ(patsrc);
+			GET_READ(patsrc);
+			uint32_t plen = (uint32_t)length(patFw);
+			uint32_t s = plen;
+			uint32_t s3 = s >> 1; // length of 3' half of seed
+			uint32_t s5 = (s >> 1) + (s & 1); // length of 5' half of seed
+			#define DONEMASK_SET(p)
+			#include "search_1mm_phase1.c"
+			#include "search_1mm_phase2.c"
+			#undef DONEMASK_SET
+		} // End read loop
 		FINISH_READ(patsrc);
-		GET_READ(patsrc);
-		uint32_t plen = length(patFw);
-		uint32_t s = plen;
-		uint32_t s3 = s >> 1; // length of 3' half of seed
-		uint32_t s5 = (s >> 1) + (s & 1); // length of 5' half of seed
-		#define DONEMASK_SET(p)
-		#include "search_1mm_phase1.c"
-		#include "search_1mm_phase2.c"
-		#undef DONEMASK_SET
-	} // End read loop
-	FINISH_READ(patsrc);
-    WORKER_EXIT();
+#ifdef PER_THREAD_TIMING
+		ss.str("");
+		ss.clear();
+		ss << "thread: " << tid << " cpu_changeovers: " << ncpu_changeovers << std::endl
+		   << "thread: " << tid << " node_changeovers: " << nnuma_changeovers << std::endl;
+		std::cout << ss.str();
+	}
+#endif
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
+    	WORKER_EXIT();
 }
 
 /**
  * Search through a single (forward) Ebwt index for exact end-to-end
  * hits.  Assumes that index is already loaded into memory.
  */
-static void mismatchSearchFull(PairedPatternSource& _patsrc,
+static void mismatchSearchFull(PatternComposer& _patsrc,
                                HitSink& _sink,
                                Ebwt<String<Dna> >& ebwtFw,
                                Ebwt<String<Dna> >& ebwtBw,
@@ -1520,26 +1842,132 @@ static void mismatchSearchFull(PairedPatternSource& _patsrc,
 	}
 	mismatchSearch_refs = refs;
 
-	AutoArray<tthread::thread*> threads(nthreads);
-	AutoArray<int> tids(nthreads);
+	int tids[max(nthreads, thread_ceiling)];
+#ifdef WITH_TBB
+	vector<std::thread*> threads;
+	vector<thread_tracking_pair> tps;
+	tps.reserve(max(nthreads, thread_ceiling));
+#else
+	vector<tthread::thread*> threads;
+#endif
 
-    CHUD_START();
-    {
+#ifdef WITH_TBB
+	tbb::atomic<int> all_threads_done;
+	all_threads_done = 0;
+#endif
+
+	CHUD_START();
+	{
 		Timer _t(cerr, "Time for 1-mismatch full-index search: ", timing);
 
+#ifndef _WIN32
+		int pid = 0;
+		if(thread_stealing) {
+			pid = getpid();
+			write_pid(thread_stealing_dir.c_str(), pid);
+			thread_counter = 0;
+		}
+#endif
+
 		for(int i = 0; i < nthreads; i++) {
-			tids[i] = i+1;
-			if(stateful)
-                                threads[i] = new tthread::thread(mismatchSearchWorkerFullStateful, (void*)&tids[i]);
-			else
-                                threads[i] = new tthread::thread(mismatchSearchWorkerFull, (void*)&tids[i]);
+			tids[i] = i;
+#ifdef WITH_TBB
+			tps[i].tid = i;
+			tps[i].done = &all_threads_done;
+			if (i == nthreads - 1) {
+				if(stateful) {
+					mismatchSearchWorkerFullStateful((void*)&tps[i]);
+				} else {
+					mismatchSearchWorkerFull((void*)&tps[i]);
+				}
+			}
+			else {
+				if(stateful) {
+					threads.push_back(new std::thread(mismatchSearchWorkerFullStateful, (void*)&tps[i]));
+				} else {
+					threads.push_back(new std::thread(mismatchSearchWorkerFull, (void*)&tps[i]));
+				}
+				threads[i]->detach();
+				SLEEP(10);
+			}
+#else
+			if (i == nthreads - 1) {
+				if(stateful) {
+					mismatchSearchWorkerFullStateful((void*)(tids + i));
+				} else {
+					mismatchSearchWorkerFull((void*)(tids + i));
+				}
+			}
+			else {
+				if(stateful) {
+					threads.push_back(new tthread::thread(mismatchSearchWorkerFullStateful, (void *)(tids + i)));
+				} else {
+					threads.push_back(new tthread::thread(mismatchSearchWorkerFull, (void *)(tids + i)));
+				}
+			}
+#endif
 		}
 
-		for(int i = 0; i < nthreads; i++) 
-                    threads[i]->join();
+#ifndef _WIN32
+		if(thread_stealing) {
+			int orig_threads = nthreads, steal_ctr = 1;
+			for(int j = 0; j < 10; j++) {
+				sleep(1);
+			}
+			while(thread_counter > 0) {
+				if(steal_thread(pid, orig_threads)) {
+					nthreads++;
+					tids[nthreads-1] = nthreads;
+#ifdef WITH_TBB
+					tps[nthreads-1].tid = nthreads - 1;
+					tps[nthreads-1].done = &all_threads_done;
+					if(stateful) {
+						threads.push_back(new std::thread(mismatchSearchWorkerFullStateful, (void*)&tps[nthreads-1]));
+					} else {
+						threads.push_back(new std::thread(mismatchSearchWorkerFull, (void*)&tps[nthreads-1]));
+					}
+					threads[nthreads - 1]->detach();
+					SLEEP(10);
+#else
+					if(stateful) {
+						threads.push_back(new tthread::thread(mismatchSearchWorkerFullStateful, (void *)(tids + nthreads - 1)));
+					} else {
+						threads.push_back(new tthread::thread(mismatchSearchWorkerFull, (void *)(tids + nthreads - 1)));
+					}
+#endif
+					cerr << "pid " << pid << " started new worker # " << nthreads << endl;
+				}
+				steal_ctr++;
+				for(int j = 0; j < 10; j++) {
+					sleep(1);
+				}
+			}
+		}
+#endif
+		
+#ifdef WITH_TBB
+		while(all_threads_done < nthreads) {
+			SLEEP(10);
+		}
+#else
+		for (int i = 0; i < nthreads - 1; i++) {
+			threads[i]->join();
+		}
+#endif
 
-    }
+#ifndef _WIN32
+		if(thread_stealing) {
+			del_pid(thread_stealing_dir.c_str(), pid);
+		}
+#endif
+	}
 	if(refs != NULL) delete refs;
+
+	for (int i = 0; i < nthreads - 1; i++) {
+		if (threads[i] != NULL) {
+			delete threads[i];
+		}
+	}
 }
 
 #define SWITCH_TO_FW_INDEX() { \
@@ -1614,7 +2042,7 @@ static void mismatchSearchFull(PairedPatternSource& _patsrc,
 		assert_eq(0, hits.size()); \
 	}
 
-static PairedPatternSource*           twoOrThreeMismatchSearch_patsrc;
+static PatternComposer*           twoOrThreeMismatchSearch_patsrc;
 static HitSink*                       twoOrThreeMismatchSearch_sink;
 static Ebwt<String<Dna> >*            twoOrThreeMismatchSearch_ebwtFw;
 static Ebwt<String<Dna> >*            twoOrThreeMismatchSearch_ebwtBw;
@@ -1624,29 +2052,23 @@ static SyncBitset*                    twoOrThreeMismatchSearch_hitMask;
 static bool                           twoOrThreeMismatchSearch_two;
 static BitPairReference*              twoOrThreeMismatchSearch_refs;
 
-#define TWOTHREE_WORKER_SETUP() \
-	int tid = *((int*)vp); \
-	PairedPatternSource&           _patsrc  = *twoOrThreeMismatchSearch_patsrc;   \
-	HitSink&                       _sink    = *twoOrThreeMismatchSearch_sink;     \
-	vector<String<Dna5> >&         os       = *twoOrThreeMismatchSearch_os;       \
-	bool                           two      = twoOrThreeMismatchSearch_two; \
-    PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid); \
-	PatternSourcePerThread* patsrc = patsrcFact->create(); \
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink); \
-	HitSinkPerThread* sink = sinkFact->create(); \
-	/* Per-thread initialization */ \
-	EbwtSearchParams<String<Dna> > params( \
-			*sink,       /* HitSink */ \
-	        os,          /* reference sequences */ \
-	        true,        /* read is forward */ \
-	        true);       /* index is forward */
 
 /**
  * A statefulness-aware worker driver.  Uses UnpairedExactAlignerV1.
  */
+#ifdef WITH_TBB
+//void twoOrThreeMismatchSearchWorkerStateful::operator()() const {
+static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
 static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	int tid = *((int*)vp);
-	PairedPatternSource&   _patsrc = *twoOrThreeMismatchSearch_patsrc;
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer&   _patsrc = *twoOrThreeMismatchSearch_patsrc;
 	HitSink&               _sink   = *twoOrThreeMismatchSearch_sink;
 	Ebwt<String<Dna> >&    ebwtFw  = *twoOrThreeMismatchSearch_ebwtFw;
 	Ebwt<String<Dna> >&    ebwtBw  = *twoOrThreeMismatchSearch_ebwtBw;
@@ -1655,8 +2077,8 @@ static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	static bool            two     =  twoOrThreeMismatchSearch_two;
 
 	// Global initialization
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid);
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink);
+	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 
 	ChunkPool *pool = new ChunkPool(chunkSz * 1024, chunkPoolMegabytes * 1024 * 1024, chunkVerbose);
 	Unpaired23mmAlignerV1Factory alSEfact(
@@ -1719,8 +2141,15 @@ static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 				alPEfact,
 				*patsrcFact);
 		// Run that mother
-		multi.run();
+		multi.run(false, tid);
 		// MultiAligner must be destroyed before patsrcFact
+	}
+
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
+	if(thread_stealing) {
+		decrement_thread_counter();
 	}
 
 	delete patsrcFact;
@@ -1729,8 +2158,32 @@ static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	return;
 }
 
+#ifdef WITH_TBB
+//void twoOrThreeMismatchSearchWorkerFull::operator()() const {
 static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
-	TWOTHREE_WORKER_SETUP();
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
+static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
+	int tid = *((int*)vp);
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer&           _patsrc  = *twoOrThreeMismatchSearch_patsrc;
+	HitSink&                       _sink    = *twoOrThreeMismatchSearch_sink;
+	vector<String<Dna5> >&         os       = *twoOrThreeMismatchSearch_os;
+	bool                           two      = twoOrThreeMismatchSearch_two;
+	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	PatternSourcePerThread* patsrc = patsrcFact->create();
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
+	HitSinkPerThread* sink = sinkFact->create();
+	/* Per-thread initialization */
+	EbwtSearchParams<String<Dna> > params(
+			*sink,       /* HitSink */
+	        os,          /* reference sequences */
+	        true,        /* read is forward */
+	        true);       /* index is forward */
 	Ebwt<String<Dna> >& ebwtFw = *twoOrThreeMismatchSearch_ebwtFw;
 	Ebwt<String<Dna> >& ebwtBw = *twoOrThreeMismatchSearch_ebwtBw;
 	const BitPairReference* refs = twoOrThreeMismatchSearch_refs;
@@ -1792,28 +2245,69 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 	        false,          // considerQuals
 	        true);          // halfAndHalf
 	bool skipped = false;
-	while(true) { // Read read-in loop
+	pair<bool, bool> get_read_ret = make_pair(false, false);
+#ifdef PER_THREAD_TIMING
+	uint64_t ncpu_changeovers = 0;
+	uint64_t nnuma_changeovers = 0;
+	
+	int current_cpu = 0, current_node = 0;
+	get_cpu_and_node(current_cpu, current_node);
+
+	std::stringstream ss;
+	std::string msg;
+	ss << "thread: " << tid << " time: ";
+	msg = ss.str();
+	{
+		Timer timer(std::cout, msg.c_str());
+#endif
+		while(true) { // Read read-in loop
+#ifdef PER_THREAD_TIMING
+			int cpu = 0, node = 0;
+			get_cpu_and_node(cpu, node);
+			if(cpu != current_cpu) {
+				ncpu_changeovers++;
+				current_cpu = cpu;
+			}
+			if(node != current_node) {
+				nnuma_changeovers++;
+				current_node = node;
+			}
+#endif
+			FINISH_READ(patsrc);
+			GET_READ(patsrc);
+			patid += 0; // kill unused variable warning
+			uint32_t plen = (uint32_t)length(patFw);
+			uint32_t s = plen;
+			uint32_t s3 = s >> 1; // length of 3' half of seed
+			uint32_t s5 = (s >> 1) + (s & 1); // length of 5' half of seed
+			#define DONEMASK_SET(p)
+			#include "search_23mm_phase1.c"
+			#include "search_23mm_phase2.c"
+			#include "search_23mm_phase3.c"
+			#undef DONEMASK_SET
+		}
 		FINISH_READ(patsrc);
-		GET_READ(patsrc);
-		patid += 0; // kill unused variable warning
-		uint32_t plen = length(patFw);
-		uint32_t s = plen;
-		uint32_t s3 = s >> 1; // length of 3' half of seed
-		uint32_t s5 = (s >> 1) + (s & 1); // length of 5' half of seed
-		#define DONEMASK_SET(p)
-		#include "search_23mm_phase1.c"
-		#include "search_23mm_phase2.c"
-		#include "search_23mm_phase3.c"
-		#undef DONEMASK_SET
+		if(thread_stealing) {
+			decrement_thread_counter();
+		}
+#ifdef PER_THREAD_TIMING
+		ss.str("");
+		ss.clear();
+		ss << "thread: " << tid << " cpu_changeovers: " << ncpu_changeovers << std::endl
+		   << "thread: " << tid << " node_changeovers: " << nnuma_changeovers << std::endl;
+		std::cout << ss.str();
 	}
-	FINISH_READ(patsrc);
+#endif
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
 	// Threads join at end of Phase 1
 	WORKER_EXIT();
 }
 
 template<typename TStr>
 static void twoOrThreeMismatchSearchFull(
-		PairedPatternSource& _patsrc,   /// pattern source
+		PatternComposer& _patsrc,   /// pattern source
 		HitSink& _sink,                 /// hit sink
 		Ebwt<TStr>& ebwtFw,             /// index of original text
 		Ebwt<TStr>& ebwtBw,             /// index of mirror text
@@ -1851,28 +2345,136 @@ static void twoOrThreeMismatchSearchFull(
 	twoOrThreeMismatchSearch_hitMask  = NULL;
 	twoOrThreeMismatchSearch_two      = two;
 
-	AutoArray<tthread::thread*> threads(nthreads);
-	AutoArray<int> tids(nthreads);
+	int tids[max(nthreads, thread_ceiling)];
+#ifdef WITH_TBB
+	vector<std::thread*> threads;
+	vector<thread_tracking_pair> tps;
+	tps.reserve(max(nthreads, thread_ceiling));
+#else
+	vector<tthread::thread*> threads;
+#endif
 
-        CHUD_START();
-    {
+#ifdef WITH_TBB
+	tbb::atomic<int> all_threads_done;
+	all_threads_done = 0;
+#endif
+
+	CHUD_START();
+	{
 		Timer _t(cerr, "End-to-end 2/3-mismatch full-index search: ", timing);
+
+#ifndef _WIN32
+		int pid = 0;
+		if(thread_stealing) {
+			pid = getpid();
+			write_pid(thread_stealing_dir.c_str(), pid);
+			thread_counter = 0;
+		}
+#endif
+
 		for(int i = 0; i < nthreads; i++) {
-			tids[i] = i+1;
-			if(stateful)
-                            threads[i] = new tthread::thread(twoOrThreeMismatchSearchWorkerStateful, (void*)&tids[i]);
-			else
-                            threads[i] = new tthread::thread(twoOrThreeMismatchSearchWorkerFull, (void *)&tids[i]);
+			tids[i] = i;
+#ifdef WITH_TBB
+			tps[i].tid = i;
+			tps[i].done = &all_threads_done;
+			if (i == nthreads - 1) {
+				if(stateful) {
+					twoOrThreeMismatchSearchWorkerStateful((void*)&tps[i]);
+				} else {
+					twoOrThreeMismatchSearchWorkerFull((void*)&tps[i]);
+				}
+			}
+			else {
+				if(stateful) {
+					threads.push_back(new std::thread(twoOrThreeMismatchSearchWorkerStateful, (void*)&tps[i]));
+				} else {
+					threads.push_back(new std::thread(twoOrThreeMismatchSearchWorkerFull, (void*)&tps[i]));
+				}
+				threads[i]->detach();
+				SLEEP(10);
+			}
+#else
+			if (i == nthreads - 1) {
+				if(stateful) {
+					twoOrThreeMismatchSearchWorkerStateful((void*)(tids + i));
+				} else {
+					twoOrThreeMismatchSearchWorkerFull((void*)(tids + i));
+				}
+			}
+			else {
+				if(stateful) {
+					threads.push_back(new tthread::thread(twoOrThreeMismatchSearchWorkerStateful, (void *)(tids + i)));
+				} else {
+					threads.push_back(new tthread::thread(twoOrThreeMismatchSearchWorkerFull, (void *)(tids + i)));
+				}
+			}
+#endif
 		}
 
-		for(int i = 0; i < nthreads; i++) 
-                    threads[i]->join();
-    }
+#ifndef _WIN32
+		if(thread_stealing) {
+			int orig_threads = nthreads, steal_ctr = 1;
+			for(int j = 0; j < 10; j++) {
+				sleep(1);
+			}
+			while(thread_counter > 0) {
+				if(steal_thread(pid, orig_threads)) {
+					nthreads++;
+					tids[nthreads-1] = nthreads;
+#ifdef WITH_TBB
+					tps[nthreads-1].tid = nthreads - 1;
+					tps[nthreads-1].done = &all_threads_done;
+					if(stateful) {
+						threads.push_back(new std::thread(twoOrThreeMismatchSearchWorkerStateful, (void*)&tps[nthreads-1]));
+					} else {
+						threads.push_back(new std::thread(twoOrThreeMismatchSearchWorkerFull, (void*)&tps[nthreads-1]));
+					}
+					threads[nthreads-1]->detach();
+					SLEEP(10);
+#else
+					if(stateful) {
+						threads.push_back(new tthread::thread(twoOrThreeMismatchSearchWorkerStateful, (void *)(tids + nthreads - 1)));
+					} else {
+						threads.push_back(new tthread::thread(twoOrThreeMismatchSearchWorkerFull, (void *)(tids + nthreads - 1)));
+					}
+#endif
+					cerr << "pid " << pid << " started new worker # " << nthreads << endl;
+				}
+				steal_ctr++;
+				for(int j = 0; j < 10; j++) {
+					sleep(1);
+				}
+			}
+		}
+#endif
+		
+#ifdef WITH_TBB
+		while(all_threads_done < nthreads) {
+			SLEEP(10);
+		}
+#else
+		for (int i = 0; i < nthreads - 1; i++) {
+			threads[i]->join();
+		}
+#endif
+
+#ifndef _WIN32
+		if(thread_stealing) {
+			del_pid(thread_stealing_dir.c_str(), pid);
+		}
+#endif
+	}
 	if(refs != NULL) delete refs;
+
+	for (int i = 0; i < nthreads - 1; i++) {
+		if (threads[i] != NULL) {
+			delete threads[i];
+		}
+	}
 	return;
 }
 
-static PairedPatternSource*     seededQualSearch_patsrc;
+static PatternComposer*     seededQualSearch_patsrc;
 static HitSink*                 seededQualSearch_sink;
 static Ebwt<String<Dna> >*      seededQualSearch_ebwtFw;
 static Ebwt<String<Dna> >*      seededQualSearch_ebwtBw;
@@ -1884,25 +2486,32 @@ static PartialAlignmentManager* seededQualSearch_pamRc;
 static int                      seededQualSearch_qualCutoff;
 static BitPairReference*        seededQualSearch_refs;
 
-#define SEEDEDQUAL_WORKER_SETUP() \
-	int tid = *((int*)vp); \
-	PairedPatternSource&     _patsrc    = *seededQualSearch_patsrc;    \
-	HitSink&                 _sink      = *seededQualSearch_sink;      \
-	vector<String<Dna5> >&   os         = *seededQualSearch_os;        \
-	int                      qualCutoff = seededQualSearch_qualCutoff; \
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid); \
-	PatternSourcePerThread* patsrc = patsrcFact->create(); \
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink); \
-	HitSinkPerThread* sink = sinkFact->create(); \
-	/* Per-thread initialization */ \
-	EbwtSearchParams<String<Dna> > params( \
-	        *sink,       /* HitSink */ \
-	        os,          /* reference sequences */ \
-	        true,        /* read is forward */ \
-	        true);       /* index is forward */
-
+#ifdef WITH_TBB
+//void seededQualSearchWorkerFull::operator()() const {
 static void seededQualSearchWorkerFull(void *vp) {
-	SEEDEDQUAL_WORKER_SETUP();
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
+static void seededQualSearchWorkerFull(void *vp) {
+	int tid = *((int*)vp);
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer&     _patsrc    = *seededQualSearch_patsrc;
+	HitSink&                 _sink      = *seededQualSearch_sink;
+	vector<String<Dna5> >&   os         = *seededQualSearch_os;
+	int                      qualCutoff = seededQualSearch_qualCutoff;
+	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	PatternSourcePerThread* patsrc = patsrcFact->create();
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
+	HitSinkPerThread* sink = sinkFact->create();
+	/* Per-thread initialization */
+	EbwtSearchParams<String<Dna> > params(
+	        *sink,       /* HitSink */
+	        os,          /* reference sequences */
+	        true,        /* read is forward */
+	        true);       /* index is forward */
 	Ebwt<String<Dna> >& ebwtFw = *seededQualSearch_ebwtFw;
 	Ebwt<String<Dna> >& ebwtBw = *seededQualSearch_ebwtBw;
 	PartialAlignmentManager * pamRc = NULL;
@@ -2053,34 +2662,84 @@ static void seededQualSearchWorkerFull(void *vp) {
 	        !noMaqRound);
 	String<QueryMutation> muts;
 	bool skipped = false;
-	while(true) {
+	pair<bool, bool> get_read_ret = make_pair(false, false);
+#ifdef PER_THREAD_TIMING
+	uint64_t ncpu_changeovers = 0;
+	uint64_t nnuma_changeovers = 0;
+	
+	int current_cpu = 0, current_node = 0;
+	get_cpu_and_node(current_cpu, current_node);
+
+	std::stringstream ss;
+	std::string msg;
+	ss << "thread: " << tid << " time: ";
+	msg = ss.str();
+	{
+		Timer timer(std::cout, msg.c_str());
+#endif
+		while(true) {
+#ifdef PER_THREAD_TIMING
+			int cpu = 0, node = 0;
+			get_cpu_and_node(cpu, node);
+			if(cpu != current_cpu) {
+				ncpu_changeovers++;
+				current_cpu = cpu;
+			}
+			if(node != current_node) {
+				nnuma_changeovers++;
+				current_node = node;
+			}
+#endif
+			FINISH_READ(patsrc);
+			GET_READ(patsrc);
+			uint32_t plen = (uint32_t)length(patFw);
+			uint32_t s = seedLen;
+			uint32_t s3 = (s >> 1); /* length of 3' half of seed */
+			uint32_t s5 = (s >> 1) + (s & 1); /* length of 5' half of seed */
+			uint32_t qs = min<uint32_t>(plen, s);
+			uint32_t qs3 = qs >> 1;
+			uint32_t qs5 = (qs >> 1) + (qs & 1);
+			#define DONEMASK_SET(p)
+			#include "search_seeded_phase1.c"
+			#include "search_seeded_phase2.c"
+			#include "search_seeded_phase3.c"
+			#include "search_seeded_phase4.c"
+			#undef DONEMASK_SET
+		}
 		FINISH_READ(patsrc);
-		GET_READ(patsrc);
-		uint32_t plen = (uint32_t)length(patFw);
-		uint32_t s = seedLen;
-		uint32_t s3 = (s >> 1); /* length of 3' half of seed */
-		uint32_t s5 = (s >> 1) + (s & 1); /* length of 5' half of seed */
-		uint32_t qs = min<uint32_t>(plen, s);
-		uint32_t qs3 = qs >> 1;
-		uint32_t qs5 = (qs >> 1) + (qs & 1);
-		#define DONEMASK_SET(p)
-		#include "search_seeded_phase1.c"
-		#include "search_seeded_phase2.c"
-		#include "search_seeded_phase3.c"
-		#include "search_seeded_phase4.c"
-		#undef DONEMASK_SET
+		if(thread_stealing) {
+			decrement_thread_counter();
+		}
+		if(seedMms > 0) {
+			delete pamRc;
+			delete pamFw;
+		}
+#ifdef PER_THREAD_TIMING
+		ss.str("");
+		ss.clear();
+		ss << "thread: " << tid << " cpu_changeovers: " << ncpu_changeovers << std::endl
+		   << "thread: " << tid << " node_changeovers: " << nnuma_changeovers << std::endl;
+		std::cout << ss.str();
 	}
-	FINISH_READ(patsrc);
-	if(seedMms > 0) {
-		delete pamRc;
-		delete pamFw;
-	}
+#endif
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
 	WORKER_EXIT();
 }
-
+#ifdef WITH_TBB
+//void seededQualSearchWorkerFullStateful::operator()() const {
+static void seededQualSearchWorkerFullStateful(void *vp) {
+	thread_tracking_pair *p = (thread_tracking_pair*) vp;
+	int tid = p->tid;
+#else
 static void seededQualSearchWorkerFullStateful(void *vp) {
 	int tid = *((int*)vp);
-	PairedPatternSource&     _patsrc    = *seededQualSearch_patsrc;
+#endif
+	if(thread_stealing) {
+		increment_thread_counter();
+	}
+	PatternComposer&     _patsrc    = *seededQualSearch_patsrc;
 	HitSink&                 _sink      = *seededQualSearch_sink;
 	Ebwt<String<Dna> >&      ebwtFw     = *seededQualSearch_ebwtFw;
 	Ebwt<String<Dna> >&      ebwtBw     = *seededQualSearch_ebwtBw;
@@ -2089,8 +2748,8 @@ static void seededQualSearchWorkerFullStateful(void *vp) {
 	BitPairReference*        refs       = seededQualSearch_refs;
 
 	// Global initialization
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid);
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink);
+	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 	ChunkPool *pool = new ChunkPool(chunkSz * 1024, chunkPoolMegabytes * 1024 * 1024, chunkVerbose);
 
 	AlignerMetrics *metrics = NULL;
@@ -2165,12 +2824,19 @@ static void seededQualSearchWorkerFullStateful(void *vp) {
 				alPEfact,
 				*patsrcFact);
 		// Run that mother
-		multi.run();
+		multi.run(false, tid);
 		// MultiAligner must be destroyed before patsrcFact
 	}
 	if(metrics != NULL) {
 		metrics->printSummary();
 		delete metrics;
+	}
+
+#ifdef WITH_TBB
+	p->done->fetch_and_add(1);
+#endif
+	if(thread_stealing) {
+		decrement_thread_counter();
 	}
 
 	delete patsrcFact;
@@ -2199,7 +2865,7 @@ static void seededQualCutoffSearchFull(
         int seedMms,                    /// max # mismatches allowed in seed
                                         /// (like maq map's -n option)
                                         /// Can only be 1 or 2, default: 1
-        PairedPatternSource& _patsrc,   /// pattern source
+        PatternComposer& _patsrc,   /// pattern source
         HitSink& _sink,                 /// hit sink
         Ebwt<TStr>& ebwtFw,             /// index of original text
         Ebwt<TStr>& ebwtBw,             /// index of mirror text
@@ -2229,8 +2895,19 @@ static void seededQualCutoffSearchFull(
 	}
 	seededQualSearch_refs = refs;
 
-	AutoArray<tthread::thread*> threads(nthreads);
-	AutoArray<int> tids(nthreads);
+	int tids[max(nthreads, thread_ceiling)];
+#ifdef WITH_TBB
+	vector<std::thread*> threads;
+	vector<thread_tracking_pair> tps;
+	tps.reserve(max(nthreads, thread_ceiling));
+#else
+	vector<tthread::thread*> threads;
+#endif
+
+#ifdef WITH_TBB
+	tbb::atomic<int> all_threads_done;
+	all_threads_done = 0;
+#endif
 
 	SWITCH_TO_FW_INDEX();
 	assert(!ebwtBw.isInMemory());
@@ -2244,21 +2921,118 @@ static void seededQualCutoffSearchFull(
 		// Phase 1: Consider cases 1R and 2R
 		Timer _t(cerr, "Seeded quality full-index search: ", timing);
 
+#ifndef _WIN32
+		int pid = 0;
+		if(thread_stealing) {
+			pid = getpid();
+			write_pid(thread_stealing_dir.c_str(), pid);
+			thread_counter = 0;
+		}
+#endif
+
 		for(int i = 0; i < nthreads; i++) {
-			tids[i] = i+1;
-			if(stateful)
-                                threads[i] = new tthread::thread(seededQualSearchWorkerFullStateful, (void*)&tids[i]);
-			else
-                                threads[i] = new tthread::thread(seededQualSearchWorkerFull, (void*)&tids[i]);
+			tids[i] = i;
+#ifdef WITH_TBB
+			tps[i].tid = i;
+			tps[i].done = &all_threads_done;
+			if (i == nthreads - 1) {
+				if(stateful) {
+					seededQualSearchWorkerFullStateful((void*)&tps[i]);
+				} else {
+					seededQualSearchWorkerFull((void*)&tps[i]);
+				}
+			}
+			else {
+				if(stateful) {
+					threads.push_back(new std::thread(seededQualSearchWorkerFullStateful, (void*)&tps[i]));
+				} else {
+					threads.push_back(new std::thread(seededQualSearchWorkerFull, (void*)&tps[i]));
+				}
+				threads[i]->detach();
+				SLEEP(10);
+		    }
+#else
+			if (i == nthreads - 1) {
+				if(stateful) {
+					seededQualSearchWorkerFullStateful((void*)(tids + i));
+				} else {
+					seededQualSearchWorkerFull((void*)(tids + i));
+				}
+			}
+			else {
+				if(stateful) {
+					threads.push_back(new tthread::thread(seededQualSearchWorkerFullStateful, (void *)(tids + i)));
+				} else {
+					threads.push_back(new tthread::thread(seededQualSearchWorkerFull, (void *)(tids + i)));
+				}
+			}
+#endif
 		}
 
-		for(int i = 0; i < nthreads; i++) 
-                    threads[i]->join();
+#ifndef _WIN32
+		if(thread_stealing) {
+			int orig_threads = nthreads, steal_ctr = 1;
+			for(int j = 0; j < 10; j++) {
+				sleep(1);
+			}
+			while(thread_counter > 0) {
+				if(steal_thread(pid, orig_threads)) {
+					nthreads++;
+					tids[nthreads-1] = nthreads - 1;
+#ifdef WITH_TBB
+					tps[nthreads-1].tid = nthreads - 1;
+					tps[nthreads-1].done = &all_threads_done;
+					if(stateful) {
+						threads.push_back(new std::thread(seededQualSearchWorkerFullStateful, (void*)&tps[nthreads-1]));
+					} else {
+						threads.push_back(new std::thread(seededQualSearchWorkerFull, (void*)&tps[nthreads-1]));
+					}
+					threads[nthreads-1]->detach();
+					SLEEP(10);
+#else
+					if(stateful) {
+						threads.push_back(new tthread::thread(seededQualSearchWorkerFullStateful, (void *)(tids + nthreads - 1)));
+					} else {
+						threads.push_back(new tthread::thread(seededQualSearchWorkerFull, (void *)(tids + nthreads - 1)));
+					}
+#endif
+					cerr << "pid " << pid << " started new worker # " << nthreads << endl;
+				}
+				steal_ctr++;
+				for(int j = 0; j < 10; j++) {
+					sleep(1);
+				}
+			}
+		}
+#endif
+		
+#ifdef WITH_TBB
+		while(all_threads_done < nthreads) {
+			SLEEP(10);
+		}
+#else
+		for (int i = 0; i < nthreads - 1; i++) {
+			threads[i]->join();
+		}
+#endif
 
+#ifndef _WIN32
+		if(thread_stealing) {
+			del_pid(thread_stealing_dir.c_str(), pid);
+		}
+#endif
 	}
+
 	if(refs != NULL) {
 		delete refs;
 	}
+
+	for (int i = 0; i < nthreads - 1; i++) {
+		if (threads[i] != NULL) {
+			delete threads[i];
+		}
+	}
+
 	ebwtBw.evictFromMemory();
 }
 
@@ -2274,57 +3048,39 @@ patsrcFromStrings(int format,
 {
 	switch(format) {
 		case FASTA:
-			return new FastaPatternSource (seed, reads, quals, color,
-			                               randomizeQuals,
-			                               patDumpfile, verbose,
+			return new FastaPatternSource (reads, quals, color,
 			                               trim3, trim5,
 			                               solexaQuals, phred64Quals,
-			                               integerQuals,
-			                               skipReads);
+			                               integerQuals);
 		case FASTA_CONT:
 			return new FastaContinuousPatternSource (
-			                               seed, reads, fastaContLen,
-			                               fastaContFreq,
-			                               patDumpfile, verbose,
-			                               skipReads);
+			                               reads, fastaContLen,
+			                               fastaContFreq);
 		case RAW:
-			return new RawPatternSource   (seed, reads, color,
-			                               randomizeQuals,
-			                               patDumpfile, verbose,
-			                               trim3, trim5,
-			                               skipReads);
+			return new RawPatternSource   (reads, color,
+			                               trim3, trim5);
 		case FASTQ:
-			return new FastqPatternSource (seed, reads, color,
-			                               randomizeQuals,
-			                               patDumpfile, verbose,
+			return new FastqPatternSource (reads, color,
 			                               trim3, trim5,
 			                               solexaQuals, phred64Quals,
-			                               integerQuals, fuzzy,
-			                               skipReads);
+			                               integerQuals);
+		case INTERLEAVED:
+			return new FastqPatternSource (reads, color,
+			                               trim3, trim5,
+			                               solexaQuals, phred64Quals,
+			                               integerQuals, true /* is interleaved */);
 		case TAB_MATE:
-			return new TabbedPatternSource(seed, reads, color,
-			                               randomizeQuals,
-			                               patDumpfile, verbose,
-			                               trim3, trim5,
-			                               skipReads);
+			return new TabbedPatternSource(reads, false, color,
+			                               trim3, trim5);
 		case CMDLINE:
-			return new VectorPatternSource(seed, reads, color,
-			                               randomizeQuals,
-			                               patDumpfile, verbose,
-			                               trim3, trim5,
-			                               skipReads);
-		case RANDOM:
-			return new RandomPatternSource(seed, 2000000, lenRandomReads,
-			                               patDumpfile,
-			                               verbose);
+			return new VectorPatternSource(reads, color,
+			                               trim3, trim5);
 		default: {
 			cerr << "Internal error; bad patsrc format: " << format << endl;
 			throw 1;
 		}
 	}
 }
-
-#define PASS_DUMP_FILES dumpAlBase, dumpUnalBase, dumpMaxBase
 
 static string argstr;
 
@@ -2468,11 +3224,11 @@ static void driver(const char * type,
 	if(verbose || startVerbose) {
 		cerr << "Creating PatternSource: "; logTime(cerr, true);
 	}
-	PairedPatternSource *patsrc = NULL;
+	PatternComposer *patsrc = NULL;
 	if(mates12.size() > 0) {
-		patsrc = new PairedSoloPatternSource(patsrcs_ab, seed);
+		patsrc = new SoloPatternComposer(patsrcs_ab);
 	} else {
-		patsrc = new PairedDualPatternSource(patsrcs_a, patsrcs_b, seed);
+		patsrc = new DualPatternComposer(patsrcs_a, patsrcs_b);
 	}
 
 	// Open hit output file
@@ -2481,32 +3237,9 @@ static void driver(const char * type,
 	}
 	OutFileBuf *fout;
 	if(!outfile.empty()) {
-		if(refOut) {
-			fout = NULL;
-			if(!quiet) {
-				cerr << "Warning: ignoring alignment output file " << outfile << " because --refout was specified" << endl;
-			}
-		} else {
-			fout = new OutFileBuf(outfile.c_str(), false);
-		}
+		fout = new OutFileBuf(outfile.c_str(), false);
 	} else {
 		fout = new OutFileBuf();
-	}
-	ReferenceMap* rmap = NULL;
-	if(refMapFile != NULL) {
-		if(verbose || startVerbose) {
-			cerr << "About to load in a reference map file with name "
-			     << refMapFile << ": "; logTime(cerr, true);
-		}
-		rmap = new ReferenceMap(refMapFile, !noRefNames);
-	}
-	AnnotationMap* amap = NULL;
-	if(annotMapFile != NULL) {
-		if(verbose || startVerbose) {
-			cerr << "About to load in an annotation map file with name "
-			     << annotMapFile << ": "; logTime(cerr, true);
-		}
-		amap = new AnnotationMap(annotMapFile);
 	}
 	// Initialize Ebwt object and read in header
 	if(verbose || startVerbose) {
@@ -2522,7 +3255,6 @@ static void driver(const char * type,
 	                useShmem, // whether to use shared memory
 	                mmSweep,  // sweep memory-mapped files
 	                !noRefNames, // load names?
-	                rmap,     // reference map, or NULL if none is needed
 	                verbose, // whether to be talkative
 	                startVerbose, // talkative during initialization
 	                false /*passMemExc*/,
@@ -2544,7 +3276,6 @@ static void driver(const char * type,
 			useShmem, // whether to use shared memory
 			mmSweep,  // sweep memory-mapped files
 			!noRefNames, // load names?
-			rmap,     // reference map, or NULL if none is needed
 			verbose,  // whether to be talkative
 			startVerbose, // talkative during initialization
 			false /*passMemExc*/,
@@ -2589,79 +3320,51 @@ static void driver(const char * type,
 		// then instruct the sink to "retain" hits in a vector in
 		// memory so that we can easily sanity check them later on
 		HitSink *sink;
-		RecalTable *table = NULL;
-		if(recal) {
-			table = new RecalTable(recalMaxCycle, recalMaxQual, recalQualShift);
-		}
 		vector<string>* refnames = &ebwt.refnames();
 		if(noRefNames) refnames = NULL;
-		switch(outType) {
-			case OUTPUT_FULL:
-				if(refOut) {
-					sink = new VerboseHitSink(
-							ebwt.nPat(), offBase,
-							colorSeq, colorQual, printCost,
-							suppressOuts, rmap, amap,
-							fullRef, PASS_DUMP_FILES,
-							format == TAB_MATE, sampleMax,
-							table, refnames, partitionSz);
-				} else {
-					sink = new VerboseHitSink(
-							fout, offBase,
-							colorSeq, colorQual, printCost,
-							suppressOuts, rmap, amap,
-							fullRef, PASS_DUMP_FILES,
-							format == TAB_MATE, sampleMax,
-							table, refnames, partitionSz);
+		if(outType == OUTPUT_FULL) {
+			sink = new VerboseHitSink(
+					*fout, offBase,
+					colorSeq, colorQual, printCost,
+					suppressOuts,
+					fullRef,
+					dumpAlBase,
+					dumpUnalBase,
+					dumpMaxBase,
+					format == TAB_MATE, sampleMax,
+					refnames, nthreads,
+					outBatchSz, partitionSz);
+		} else if(outType == OUTPUT_SAM) {
+			SAMHitSink *sam = new SAMHitSink(
+				*fout, 1,
+				fullRef, samNoQnameTrunc,
+				dumpAlBase,
+				dumpUnalBase,
+				dumpMaxBase,
+				format == TAB_MATE,
+				sampleMax,
+				refnames,
+				nthreads,
+				outBatchSz,
+				reorder);
+			if(!samNoHead) {
+				vector<string> refnames;
+				if(!samNoSQ) {
+					readEbwtRefnames(adjustedEbwtFileBase, refnames);
 				}
-				break;
-			case OUTPUT_SAM:
-				if(refOut) {
-					throw 1;
-				} else {
-					SAMHitSink *sam = new SAMHitSink(
-							fout, 1, rmap, amap,
-							fullRef, samNoQnameTrunc, defaultMapq,
-							PASS_DUMP_FILES,
-							format == TAB_MATE, sampleMax,
-							table, refnames);
-					if(!samNoHead) {
-						vector<string> refnames;
-						if(!samNoSQ) {
-							readEbwtRefnames(adjustedEbwtFileBase, refnames);
-						}
-						sam->appendHeaders(
-								sam->out(0), ebwt.nPat(),
-								refnames, color, samNoSQ, rmap,
-								ebwt.plen(), fullRef,
-								samNoQnameTrunc,
-								argstr.c_str(),
-								rgs.empty() ? NULL : rgs.c_str());
-					}
-					sink = sam;
-				}
-				break;
-			case OUTPUT_CONCISE:
-				if(refOut) {
-					sink = new ConciseHitSink(
-							ebwt.nPat(), offBase,
-							PASS_DUMP_FILES,
-							format == TAB_MATE,  sampleMax,
-							table, refnames, reportOpps);
-				} else {
-					sink = new ConciseHitSink(
-							fout, offBase,
-							PASS_DUMP_FILES,
-							format == TAB_MATE,  sampleMax,
-							table, refnames, reportOpps);
-				}
-				break;
-			case OUTPUT_NONE:
-				sink = new StubHitSink();
-				break;
-			default:
-				cerr << "Invalid output type: " << outType << endl;
-				throw 1;
+				sam->appendHeaders(
+					sam->out(),
+					ebwt.nPat(),
+					refnames, color, samNoSQ,
+					ebwt.plen(), fullRef,
+					samNoQnameTrunc,
+					argstr.c_str(),
+					rgs.empty() ? NULL : rgs.c_str());
+			}
+			sink = sam;
+		} else {
+			cerr << "Invalid output type: " << outType << endl;
+			throw 1;
 		}
 		if(verbose || startVerbose) {
 			cerr << "Dispatching to search driver: "; logTime(cerr, true);
@@ -2699,9 +3402,7 @@ static void driver(const char * type,
 		if(ebwtBw != NULL) {
 			delete ebwtBw;
 		}
-		if(!quiet) {
-			sink->finish(hadoopOut); // end the hits section of the hit file
-		}
+		sink->finish(hadoopOut); // end the hits section of the hit file
 		for(size_t i = 0; i < patsrcs_a.size(); i++) {
 			assert(patsrcs_a[i] != NULL);
 			delete patsrcs_a[i];
@@ -2718,8 +3419,6 @@ static void driver(const char * type,
 		}
 		delete patsrc;
 		delete sink;
-		delete amap;
-		delete rmap;
 		if(fout != NULL) delete fout;
 	}
 }
@@ -2735,6 +3434,13 @@ extern "C" {
  */
 int bowtie(int argc, const char **argv) {
 	try {
+  #ifdef WITH_TBB
+  #ifdef WITH_AFFINITY
+    //CWILKS: adjust this depending on # of hyperthreads per core
+    pinning_observer pinner( 2 /* the number of hyper threads on each core */ );
+          pinner.observe( true );
+  #endif
+  #endif
 		// Reset all global state, including getopt state
 		opterr = optind = 1;
 		resetOptions();
@@ -2857,6 +3563,13 @@ int bowtie(int argc, const char **argv) {
 #ifdef CHUD_PROFILING
 		chudReleaseRemoteAccess();
 #endif
+  #ifdef WITH_TBB
+  #ifdef WITH_AFFINITY
+    // Always disable observation before observers destruction
+        //tracker.observe( false );
+        pinner.observe( false );
+  #endif
+  #endif
 		return 0;
 	} catch(exception& e) {
 		cerr << "Command: ";

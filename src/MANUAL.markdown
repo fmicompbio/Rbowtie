@@ -81,16 +81,22 @@ directory, and run GNU `make` (usually with the command `make`, but
 sometimes with `gmake`) with no arguments.  If building with [MinGW],
 run `make` from the [MSYS] command line.
 
-To support the [`-p`] (multithreading) option, Bowtie needs the
-`pthreads` library on posix platforms like linux or will try to use
-native threads on Windows. For threading synchronization Bowtie is using
-by default a spinlocking mechanism. Spinlocking is in general much
-faster. However if the need arise to not use spinlocking Bowtie can also
-be compiled using `EXTRA_FLAGS=-DNO_SPINLOCK` parameter.
+To build Bowtie including support for the `bowtie` [`-p`]  and
+`bowtie-build` [`--threads`](#bowtie-build-options-threads)
+multithreading options, we recommend that you first install the
+[Thread Building Blocks library], also known as TBB, the default
+threading library.  TBB is installed by default on many operating
+systems.
+
+If TBB is not available, then use the `NO_TBB=1` option.  On Linux or
+Mac OS X, this requires the pthreads library, which is installed by
+default.  On Windows, native Windows threads will be used, which require
+no special libraries.
 
 [MinGW]:    http://www.mingw.org/
 [TDM's MinGW Build]: http://www.tdragon.net/recentgcc/
 [MSYS]:     http://www.mingw.org/wiki/msys
+[Thread Building Blocks library]: https://www.threadingbuildingblocks.org
 [Download]: https://sourceforge.net/projects/bowtie-bio/files/bowtie/
 
 The `bowtie` aligner
@@ -152,8 +158,8 @@ reference, and (b) the number of such sites on one strand is different
 from the number on the other strand.  When this happens for a given
 read, `bowtie` effectively chooses one strand or the other with 50%
 probability, then reports a randomly-selected alignment for that read
-from among the sites on the selected strand.  This tends to overassign
-alignments to the sites on the strand with fewer sites and underassign
+from among the sites on the selected strand.  This tends to over assign
+alignments to the sites on the strand with fewer sites and under assign
 to sites on the strand with more sites.  The effect is mitigated,
 though it may not be eliminated, when reads are longer or when
 paired-end reads are used.  Running Bowtie in [`--best`] mode
@@ -205,7 +211,7 @@ Bowtie does the same.  Rounding can be suppressed with the
 Bowtie is not fully sensitive in [`-n`] 2 and [`-n`] 3 modes by default.
 In these modes Bowtie imposes a "backtracking limit" to limit effort
 spent trying to find valid alignments for low-quality reads unlikely to
-have any.  This may cause bowtie to miss some legal 2- and 3-mismatch
+have any.  This may cause Bowtie to miss some legal 2- and 3-mismatch
 alignments.  The limit is set to a reasonable default (125 without
 [`--best`], 800 with [`--best`]), but the user may decrease or increase the
 limit using the [`--maxbts`] and/or [`-y`] options.  [`-y`] mode is
@@ -244,7 +250,7 @@ Reporting Modes
 ---------------
 
 With the [`-k`], [`-a`], [`-m`], [`-M`], [`--best`] and [`--strata`] options, the
-user can flexibily select which alignments are reported.  Below we
+user can flexibly select which alignments are reported.  Below we
 demonstrate a few ways in which these options can be combined.  All
 examples are using the `e_coli` index packaged with Bowtie.  The
 [`--suppress`] option is used to keep the output concise and some
@@ -259,8 +265,8 @@ output is elided for clarity.
     -	gi|110640213|ref|NC_008253.1|	905664	6:A>G,7:G>T
     +	gi|110640213|ref|NC_008253.1|	1093035	2:T>G,15:A>T
 
-Specifying [`-a`] instructs bowtie to report *all* valid alignments,
-subject to the alignment policy: [`-v`] 2.  In this case, bowtie finds
+Specifying [`-a`] instructs Bowtie to report *all* valid alignments,
+subject to the alignment policy: [`-v`] 2.  In this case, Bowtie finds
 5 inexact hits in the E. coli genome; 1 hit (the 2nd one listed)
 has 1 mismatch, and the other 4 hits have 2 mismatches.  Four are on
 the reverse reference strand and one is on the forward strand.  Note
@@ -273,7 +279,7 @@ that they are not listed in best-to-worst order.
     -	gi|110640213|ref|NC_008253.1|	2852852	8:T>A
     -	gi|110640213|ref|NC_008253.1|	4930433	4:G>T,6:C>G
 
-Specifying [`-k`] 3 instructs bowtie to report up to 3 valid
+Specifying [`-k`] 3 instructs Bowtie to report up to 3 valid
 alignments.  In this case, a total of 5 valid alignments exist (see
 [Example 1]); `bowtie` reports 3 out of those 5.  [`-k`] can be set to
 any integer greater than 0.
@@ -289,7 +295,7 @@ any integer greater than 0.
     -	gi|110640213|ref|NC_008253.1|	905664	6:A>G,7:G>T
     +	gi|110640213|ref|NC_008253.1|	1093035	2:T>G,15:A>T
 
-Specifying [`-k`] 6 instructs bowtie to report up to 6 valid
+Specifying [`-k`] 6 instructs Bowtie to report up to 6 valid
 alignments.  In this case, a total of 5 valid alignments exist, so
 `bowtie` reports all 5.
 
@@ -300,7 +306,7 @@ alignments.  In this case, a total of 5 valid alignments exist, so
 
 Leaving the reporting options at their defaults causes `bowtie` to
 report the first valid alignment it encounters.  Because [`--best`] was
-not specified, we are not guaranteed that bowtie will report the best
+not specified, we are not guaranteed that Bowtie will report the best
 alignment, and in this case it does not (the 1-mismatch alignment from
 the previous example would have been better).  The default reporting
 mode is equivalent to [`-k`] 1.
@@ -379,8 +385,9 @@ Paired-end Alignment
 
 `bowtie` can align paired-end reads when properly paired read files are
 specified using the [`-1`](#command-line) and [`-2`](#command-line) options (for pairs of raw, FASTA, or
-FASTQ read files), or using the [`--12`](#command-line) option (for Tab-delimited read
-files).  A valid paired-end alignment satisfies these criteria:
+FASTQ read files), the [`--12`](#command-line) option (for Tab-delimited read
+files), or using the [`--interleaved`](#command-line) (for interleaved FASTQ).
+A valid paired-end alignment satisfies these criteria:
 
 1. Both mates have a valid alignment according to the alignment policy
    defined by the [`-v`]/[`-n`]/[`-e`]/[`-l`] options.
@@ -576,14 +583,14 @@ Performance Tuning
 
 [Performance tuning]: #performance-tuning
 
-1.  If your computer has multiple processors/cores, use `-p`
+1.  If your computer has multiple processors/cores, use `--threads`
 
-    The [`-p`] option causes Bowtie to launch a specified number of
-    parallel search threads.  Each thread runs on a different
-    processor/core and all threads find alignments in parallel,
-    increasing alignment throughput by approximately a multiple of the
-    number of threads (though in practice, speedup is somewhat worse
-    than linear).
+    [`--threads`] option causes Bowtie to launch a specified number of
+    parallel threads.  Each thread runs on a different processor/core.
+    For alignment, this increases alignment throughput by approximately a
+    multiple of the number of threads (though in practice, it is somewhat
+    worse than linear).  For index building, using multiple threads
+    decreases building time.
 
 2.  If reporting many alignments per read, try tweaking
     `bowtie-build --offrate`
@@ -611,10 +618,9 @@ Performance Tuning
 
 3.  If bowtie "thrashes", try increasing `bowtie --offrate`
 
-    If `bowtie` runs very slow on a relatively low-memory machine
-    (having less than about 4 GB of memory), then try setting `bowtie`
-    [`-o`/`--offrate`] to a *larger* value than the value used to build
-    the index.  For example, `bowtie-build`'s default [`-o`/`--offrate`](#bowtie-build-options-o)
+    If `bowtie` runs very slow on a low-memory machine (with less than
+    about 4 GB of memory), then try setting `bowtie` [`-o`/`--offrate`]
+    to a *larger* value.  `bowtie-build`'s default [`-o`/`--offrate`](#bowtie-build-options-o)
     is 5 and all pre-built indexes available from the Bowtie website
     are built with [`-o`/`--offrate`](#bowtie-build-options-o) 5; so if `bowtie` thrashes when
     querying such an index, try using `bowtie` [`--offrate`] 6.  If
@@ -629,7 +635,7 @@ Command Line
 
 Usage:
 
-    bowtie [options]* <ebwt> {-1 <m1> -2 <m2> | --12 <r> | <s>} [<hit>]
+    bowtie [options]* <ebwt> {-1 <m1> -2 <m2> | --12 <r> | --interleaved <i> | <s>} [<hit>]
 
 ### Main arguments
 
@@ -693,6 +699,17 @@ scales supported in FASTQ files.  Reads may be a mix of different
 lengths and paired-end and unpaired reads may be intermingled in the
 same file.  If `-` is specified, `bowtie` will read the Tab-delimited
 reads from the "standard in" filehandle.
+
+</td></tr><tr><td>
+
+    <i>
+
+</td><td>
+
+A comma-separated list of interleaved paired-end FASTQ files, where
+the records for the mate #1s are interleaved with the records for the
+mate #2s.  Reads may be a mix of different lengths.  If `-` is
+specified, Bowtie reads from the "standard in" filehandle.
 
 </td></tr><tr><td>
 
@@ -938,6 +955,17 @@ ASCII characters, e.g., `II?I`....  Integers are treated as being on
 the [Phred quality] scale unless [`--solexa-quals`] is also specified.
 Default: off.
 
+</td></tr><tr><td id="bowtie-options-large-index">
+
+[`--large-index`]: #bowtie-options-large-index
+
+    --large-index
+
+</td><td>
+
+Force usage of a 'large' index (those ending in '.ebwtl'), even if a
+small one is present. Default: off.
+
 </td></tr></table>
 
 #### Alignment
@@ -1070,6 +1098,20 @@ forward-oriented. ` --ff` requires both an upstream mate1 and a
 downstream mate2 to be forward-oriented.  Default: `--fr` when [`-C`]
 (colorspace alignment) is not specified, `--ff` when [`-C`] is specified.
 
+</td></tr><tr><td id="bowtie-options-allow-contain">
+
+[`--allow-contain`]: #bowtie-options-allow-contain
+
+    --allow-contain
+
+</td><td>
+
+Normally, Bowtie will not reported a paired-end alignment for a pair
+when the two ends overlap exactly the same reference interval, or if
+the alignment interval for one is contained within the other.  This
+option causes Bowtie to report such cases as normal paired-end
+alignments.
+
 </td></tr><tr><td id="bowtie-options-nofw">
 
 [`--nofw`]: #bowtie-options-nofw
@@ -1156,6 +1198,18 @@ the descriptors, but they can still grow very large in some cases.  If
 you receive an error message saying that chunk memory has been
 exhausted in [`--best`] mode, try adjusting this parameter up to
 dedicate more memory to the descriptors.  Default: 64.
+
+</td></tr><tr><td id="bowtie-options-reads-per-batch">
+
+[`--reads-per-batch`]: #bowtie-options-reads-per-batch
+
+    --reads-per-batch <int>
+
+</td><td>
+
+Part of bowtie's batch parsing and used to specify the number of
+reads that bowtie will consume from the input file at once. Default:
+16
 
 </td></tr></table>
 
@@ -1321,20 +1375,6 @@ in [`-S`/`--sam`] mode, since SAM mandates 1-based offsets.  Default: 0.
 </td><td>
 
 Print nothing besides alignments.
-
-</td></tr><tr><td id="bowtie-options-refout">
-
-[`--refout`]: #bowtie-options-refout
-
-    --refout
-
-</td><td>
-
-Write alignments to a set of files named `refXXXXX.map`, where `XXXXX`
-is the 0-padded index of the reference sequence aligned to.  This can
-be a useful way to break up work for downstream analyses when dealing
-with, for example, large numbers of reads aligned to the assembled
-human genome.  If `<hits>` is also specified, it will be ignored.
 
 </td></tr><tr><td id="bowtie-options-refidx">
 
@@ -1531,8 +1571,7 @@ in addition to `-S/--sam`.  To suppress just the `@SQ` headers (e.g. if
 the alignment is against a very large number of reference sequences),
 use [`--sam-nosq`] in addition to `-S/--sam`.  `bowtie` does not write
 BAM files directly, but SAM output can be converted to BAM on the fly
-by piping `bowtie`'s output to `samtools view`.  [`-S`/`--sam`] is not
-compatible with [`--refout`].
+by piping `bowtie`'s output to `samtools view`.
 
 [SAM output]: #sam-bowtie-output
 
@@ -1587,6 +1626,16 @@ are legal.  Note that, if any `@RG` fields are set using this option,
 the `ID` and `SM` fields must both be among them to make the `@RG` line
 legal according to the [SAM Spec][SAM].  `--sam-RG` is ignored unless
 [`-S`/`--sam`] is also specified.
+
+</td></tr><tr><td id="bowtie-options-no-unal">
+
+[`--no-unal`]: #bowtie-options-no-unal
+
+    --no-unal
+
+</td><td>
+
+Suppress SAM records for reads that failed to align.
 
 </td></tr></table>
 
@@ -1892,63 +1941,63 @@ right, the fields are:
     `bowtie` outputs some of these optional fields for each alignment,
     depending on the type of the alignment:
 
-    <table><tr><td>
+<table><tr><td>
 
         NM:i:<N>
 
-    </td><td>
+</td><td>
 
-    Aligned read has an edit distance of `<N>`.
+Aligned read has an edit distance of `<N>`.
 
-    </td></tr><tr><td>
+</td></tr><tr><td>
 
         CM:i:<N>
 
-    </td><td>
+</td><td>
 
-    Aligned read has an edit distance of `<N>` in colorspace.  This
-    field is present in addition to the `NM` field in [`-C`/`--color`]
-    mode, but is omitted otherwise.
+Aligned read has an edit distance of `<N>` in colorspace.  This
+field is present in addition to the `NM` field in [`-C`/`--color`]
+mode, but is omitted otherwise.
 
-    </td></tr><tr><td>
+</td></tr><tr><td>
 
         MD:Z:<S>
 
-    </td><td>
+</td><td>
 
-    For aligned reads, `<S>` is a string representation of the
-    mismatched reference bases in the alignment.  See [SAM] format
-    specification for details.  For colorspace alignments, `<S>`
-    describes the decoded *nucleotide* alignment, not the colorspace
-    alignment.
+For aligned reads, `<S>` is a string representation of the
+mismatched reference bases in the alignment.  See [SAM] format
+specification for details.  For colorspace alignments, `<S>`
+describes the decoded *nucleotide* alignment, not the colorspace
+alignment.
 
-    </td></tr><tr><td>
+</td></tr><tr><td>
 
         XA:i:<N>
 
-    </td><td>
+</td><td>
 
-    Aligned read belongs to stratum `<N>`.  See [Strata] for definition.
+Aligned read belongs to stratum `<N>`.  See [Strata] for definition.
 
 [Strata]: #strata
 
-    </td></tr><tr><td>
+</td></tr><tr><td>
 
         XM:i:<N>
 
-    </td><td>
+</td><td>
 
-    For a read with no reported alignments, `<N>` is 0 if the read had
-    no alignments.  If [`-m`] was specified and the read's alignments
-    were supressed because the [`-m`] ceiling was exceeded, `<N>` equals
-    the [`-m`] ceiling + 1, to indicate that there were at least that
-    many valid alignments (but all were suppressed).  In [`-M`] mode, if
-    the alignment was randomly selected because the [`-M`] ceiling was
-    exceeded, `<N>` equals the [`-M`] ceiling + 1, to indicate that there
-    were at least that many valid alignments (of which one was reported
-    at random).
+For a read with no reported alignments, `<N>` is 0 if the read had
+no alignments.  If [`-m`] was specified and the read's alignments
+were supressed because the [`-m`] ceiling was exceeded, `<N>` equals
+the [`-m`] ceiling + 1, to indicate that there were at least that
+many valid alignments (but all were suppressed).  In [`-M`] mode, if
+the alignment was randomly selected because the [`-M`] ceiling was
+exceeded, `<N>` equals the [`-M`] ceiling + 1, to indicate that there
+were at least that many valid alignments (of which one was reported
+at random).
 
-    </td></tr></table>
+</td></tr></table>
 
 [SAM format specification]: http://samtools.sf.net/SAM1.pdf
 [FASTQ]: http://en.wikipedia.org/wiki/FASTQ_format
@@ -2095,8 +2144,9 @@ The maximum number of suffixes allowed in a block.  Allowing more
 suffixes per block makes indexing faster, but increases peak memory
 usage.  Setting this option overrides any previous setting for
 [`--bmax`], or [`--bmaxdivn`].  Default (in terms of the [`--bmaxdivn`]
-parameter) is [`--bmaxdivn`] 4.  This is configured automatically by
-default; use [`-a`/`--noauto`] to configure manually.
+parameter) is [`--bmaxdivn`] 4 * [`--threads`](#bowtie-build-options-threads).
+This is configured automatically by default; use [`-a`/`--noauto`] to
+configure manually.
 
 </td></tr><tr><td id="bowtie-build-options-bmaxdivn">
 
@@ -2184,6 +2234,19 @@ The ftab is the lookup table used to calculate an initial
 of the query.  A larger `<int>` yields a larger lookup table but faster
 query times.  The ftab has size 4^(`<int>`+1) bytes.  The default
 setting is 10 (ftab is 4MB).
+
+</td></tr><tr><td id="bowtie-build-options-threads">
+
+[`--threads`]: #bowtie-build-options-threads
+
+    --threads <int>
+
+</td><td>
+
+Launch `<int>` parallel index building threads (default: 1). Index
+building is only partly parallelizable, so expect to see average CPU
+utilization less than `<int>` at some times. This option is only
+available if linked against a multithreading library.
 
 </td></tr><tr><td id="bowtie-build-options-ntoa">
 

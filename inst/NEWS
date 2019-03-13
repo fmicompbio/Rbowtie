@@ -1,3 +1,11 @@
+CHANGES IN VERSION 1.23.2
+-------------------------
+
+NEW FEATURES
+
+    o updated bowtie to version 1.2.2.p1 + fixes from github (up to commit 58c6ac9 from Sep 5, 2018)
+
+
 CHANGES IN VERSION 1.7.9
 -----------------------
 
