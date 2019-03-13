@@ -12,5 +12,5 @@ the read alignment to the generated index. These are used by the
 We recommend to use the `QuasR` package instead of using `Rbowtie` directly.
 
 ### Source code
-The source code for bowtie v1.2.2_p1 was obtained from [https://github.com/BenLangmead/bowtie/archive/v1.2.2_p1.tar.gz](https://github.com/BenLangmead/bowtie/archive/v1.2.2_p1.tar.gz) on March 13, 2019. The folders genomes, reads, doc, indexes and scripts were not included into the package to reduce its size.
+The source code for bowtie v1.2.2_p1 was obtained from [https://github.com/BenLangmead/bowtie/archive/v1.2.2_p1.tar.gz](https://github.com/BenLangmead/bowtie/archive/v1.2.2_p1.tar.gz) on March 13, 2019, and patched to include additional changes available on github since the release (up to commit 58c6ac9 from Sep 5, 2018). The folders genomes, reads, doc, indexes and scripts were not included into the package to reduce its size.
 

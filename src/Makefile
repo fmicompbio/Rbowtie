@@ -6,7 +6,6 @@
 # - replace 'uname -p' by 'uname -m'
 # - set POPCNT_CAPABILITY = 0 on MACOS
 # - set NO_TBB=1
-# - add -std=c++03 to EXTRA_CXXFLAGS (otherwise, does not compile on gcc >=7.1)
 # - removed files
 #   from BIN_LIST:
 #     bowtie-build-l
@@ -56,7 +55,7 @@ BOWTIE_MM = 1
 BOWTIE_SHARED_MEM = 1
 EXTRA_FLAGS =
 EXTRA_CFLAGS =
-EXTRA_CXXFLAGS = -std=c++03
+EXTRA_CXXFLAGS =
 CFLAGS += $(EXTRA_CFLAGS)
 CXXFLAGS += $(EXTRA_CXXFLAGS)
 BITS = 64
