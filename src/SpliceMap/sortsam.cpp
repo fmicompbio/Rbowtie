@@ -17,6 +17,8 @@ int main (int argc, char * const argv[])
 	string temp;
 	int tabloc;
 	int tabloc2;
+	int nmloc;
+	int nmloc2;
 	string chr_name;   
 	uint_fast32_t curr_pos;
 	int curr_idx;
@@ -180,8 +182,21 @@ int main (int argc, char * const argv[])
 		tabloc2 = (int) line.find('\t',tabloc+1); 
 		
 		
-		line = line.substr(0,tabloc2) + "\t" +line.substr(line.length()-1);
-		
+		// line = line.substr(0,tabloc2) + "\t" +line.substr(line.length()-1);
+		// bowtie 1.2.2 adds an additional XM tag at the end
+		// --> need to specifically look for the NM tag value
+		nmloc = (int) line.find("NM:i:", tabloc2+1);
+		if (nmloc == string::npos) { // unaligned, no NM tag
+		    line = line.substr(0,tabloc2) + "\t0";
+		} else {
+		    nmloc += 5;
+		    nmloc2 = (int) line.find('\t', nmloc);
+		    if (nmloc2 == string::npos) {
+			line = line.substr(0,tabloc2) + "\t" + line.substr(nmloc);
+		    } else {
+			line = line.substr(0,tabloc2) + "\t" + line.substr(nmloc, nmloc2 - nmloc);
+		    }
+		}
 		
 		temp_data.pos = curr_idx;
 		temp_data.data = line;
@@ -209,7 +224,21 @@ int main (int argc, char * const argv[])
 			tabloc2 = (int) line.find('\t',tabloc+1); 
 			
 			
-			line = line.substr(0,tabloc2) + "\t" +line.substr(line.length()-1);
+			//line = line.substr(0,tabloc2) + "\t" +line.substr(line.length()-1);
+			// bowtie 1.2.2 adds an additional XM tag at the end
+			// --> need to specifically look for the NM tag value
+			nmloc = (int) line.find("NM:i:", tabloc2+1);
+			if (nmloc == string::npos) { // unaligned, no NM tag
+			    line = line.substr(0,tabloc2) + "\t0";
+			} else {
+			    nmloc += 5;
+			    nmloc2 = (int) line.find('\t', nmloc);
+			    if (nmloc2 == string::npos) {
+				line = line.substr(0,tabloc2) + "\t" + line.substr(nmloc);
+			    } else {
+				line = line.substr(0,tabloc2) + "\t" + line.substr(nmloc, nmloc2 - nmloc);
+			    }
+			}
 			
 			if (temp_curr_idx == curr_idx) {
 				temp_data.pos = curr_idx;
