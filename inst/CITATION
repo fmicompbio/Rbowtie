@@ -1,7 +1,6 @@
 citHeader("The Rbowtie package contains code from two separate software projects. If using bowtie only, it can be cited as Langmead et al. (2009). If using also SpliceMap, it can be cited in addition Au et al. (2010). The Rbowtie package can be cited using the third reference below:")
 
-desc <- packageDescription("Rbowtie")
-vers <- paste("R package version", desc$Version)
+vers <- paste("R package version", meta$Version)
 
 citEntry(entry="article",
 	 title="Ultrafast and memory-efficient alignment of short DNA sequences to the human genome",
