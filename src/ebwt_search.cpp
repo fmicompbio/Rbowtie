@@ -480,6 +480,9 @@ static void printUsage(ostream& out) {
 	    << "Input:" << endl
 	    << "  -q                 query input files are FASTQ .fq/.fastq (default)" << endl
 	    << "  -f                 query input files are (multi-)FASTA .fa/.mfa" << endl
+	    << "  -F k:<int>,i:<int> query input files are continuous FASTA where reads" << endl
+	    << "                     are substrings (k-mers) extracted from a FASTA file <s>" << endl
+	    << "                     and aligned at offsets 1, 1+i, 1+2i ... end of reference" << endl
 	    << "  -r                 query input files are raw one-sequence-per-line" << endl
 	    << "  -c                 query sequences given on cmd line (as <mates>, <singles>)" << endl
 	    << "  -C                 reads and index are in colorspace" << endl
@@ -3119,6 +3122,11 @@ static void driver(const char * type,
 	}
 	// Adjust
 	adjustedEbwtFileBase = adjustEbwtBase(argv0, ebwtFileBase, verbose);
+	bool isBt2Index = false;
+	if (gEbwt_ext == "bt2" || gEbwt_ext == "bt2l") {
+		isBt2Index = true;
+	}
+
 
 	vector<PatternSource*> patsrcs_a;
 	vector<PatternSource*> patsrcs_b;
@@ -3258,7 +3266,8 @@ static void driver(const char * type,
 	                verbose, // whether to be talkative
 	                startVerbose, // talkative during initialization
 	                false /*passMemExc*/,
-	                sanityCheck);
+	                sanityCheck,
+	                isBt2Index);
 	Ebwt<TStr>* ebwtBw = NULL;
 	// We need the mirror index if mismatches are allowed
 	if(mismatches > 0 || maqLike) {
@@ -3279,7 +3288,8 @@ static void driver(const char * type,
 			verbose,  // whether to be talkative
 			startVerbose, // talkative during initialization
 			false /*passMemExc*/,
-			sanityCheck);
+			sanityCheck,
+	        isBt2Index);
 	}
 	if(!os.empty()) {
 		for(size_t i = 0; i < os.size(); i++) {

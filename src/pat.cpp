@@ -765,6 +765,7 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 					// can re-use this prefix for all the reads
 					// that are substrings of this FASTA sequence
 					name_prefix_buf_[nameoff++] = c;
+					subReadCnt_ = 0;
 				}
 				c = getc_wrapper();
 			}
@@ -794,13 +795,14 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 				// the sampling gaps are by looking at the read
 				// name
 				if(!beginning_) {
-					readCnt_++;
+					subReadCnt_++;
 				}
 				continue;
 			}
 			// install name
+			nameoff = strlen(name_prefix_buf_);
 			memcpy(readbuf[readi].readOrigBuf, name_prefix_buf_, nameoff);
-			itoa10<TReadId>(readCnt_ - subReadCnt_, name_int_buf_);
+			itoa10<TReadId>(subReadCnt_, name_int_buf_);
 			size_t bufoff = nameoff;
 			memcpy(readbuf[readi].readOrigBuf + bufoff, name_int_buf_, strlen(name_int_buf_));
 			bufoff += strlen(name_int_buf_);
@@ -817,8 +819,8 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 			}
 			readbuf[readi].readOrigBufLen = bufoff;
 			eat_ = freq_-1;
-			readCnt_++;
 			beginning_ = false;
+			subReadCnt_++;
 			readi++;
 		}
 	}
@@ -861,9 +863,9 @@ bool FastaContinuousPatternSource::parse(
 
 	// Parse sequence
 	assert_eq(0, seqan::length(ra.patFw));
-	c = ra.readOrigBuf[cur++];
 	int nchar = 0, seqoff = 0;
 	while(cur < buflen) {
+		c = ra.readOrigBuf[cur++];
 		if(isalpha(c)) {
 			assert_in(toupper(c), "ACGTN");
 			if(nchar++ >= this->trim5_) {
@@ -871,7 +873,6 @@ bool FastaContinuousPatternSource::parse(
 				ra.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
 			}
 		}
-		c = ra.readOrigBuf[cur++];
 	}
 	ra.patBufFw[seqoff] = '\0';
 	_setBegin(ra.patFw, (Dna5*)ra.patBufFw);
@@ -1322,6 +1323,9 @@ pair<bool, int> RawPatternSource::nextBatchFromFile(
 	size_t readi)
 {
 	int c = getc_wrapper();
+	while(c >= 0 && (c == '\n' || c == '\r')) {
+		c = getc_wrapper();
+	}
 	vector<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
 	// Read until we run out of input or until we've filled the buffer
 	for(; readi < pt.max_buf_ && c >= 0; readi++) {
@@ -1329,14 +1333,15 @@ pair<bool, int> RawPatternSource::nextBatchFromFile(
 		while(c >= 0 && (c == '\n' || c == '\r')) {
 			c = getc_wrapper();
 		}
-		while(c >= 0 && c != '\n' && c != '\r') {
+		while(c >= 0 && (c != '\n' && c != '\r')) {
 			readbuf[readi].readOrigBuf[readbuf[readi].readOrigBufLen++] = c;
 			c = getc_wrapper();
 		}
 	}
-	while(readi > 0 && readbuf[readi-1].readOrigBufLen == 0) {
+	while (readi > 0 && readbuf[readi-1].readOrigBufLen == 0) {
 		readi--;
 	}
+
 	return make_pair(c < 0, readi);
 }
 

@@ -262,10 +262,10 @@ public:
 	void finish(bool hadoopOut) {
 		// Flush all per-thread buffers
 		flushAll();
-		
+
 		// Close all output streams
 		closeOuts();
-		
+
 		// Print information about how many unpaired and/or paired
 		// reads were aligned.
 		if(!quiet_) {
@@ -279,7 +279,7 @@ public:
 				numUnaligned += ptNumUnaligned_[i];
 				numMaxed += ptNumMaxed_[i];
 			}
-			
+
 			uint64_t tot = numAligned + numUnaligned + numMaxed;
 			double alPct = 0.0, unalPct = 0.0, maxPct = 0.0;
 			if(tot > 0) {
@@ -554,7 +554,7 @@ protected:
 	/**
 	 * Flush thread's output buffer and reset both buffer and count.
 	 */
-	void flush(size_t threadId, bool finalBatch) {
+	void flush(size_t threadId, bool force) {
 		{
 			ThreadSafe _ts(&mutex_); // flush
 			out_.writeString(ptBufs_[threadId]);
@@ -562,13 +562,13 @@ protected:
 		ptCounts_[threadId] = 0;
 		ptBufs_[threadId].clear();
 	}
-	
+
 	/**
 	 * Flush all output buffers.
 	 */
 	void flushAll() {
 		for(size_t i = 0; i < nthreads_; i++) {
-			flush(i, i == nthreads_ - 1);
+			flush(i, true);
 		}
 	}
 
@@ -581,7 +581,7 @@ protected:
 			flush(threadId, false /* final batch? */);
 		}
 	}
-	
+
 	/**
 	 * Close (and flush) all OutFileBufs.
 	 */
@@ -592,13 +592,13 @@ protected:
 	OutFileBuf&         out_;        /// the alignment output stream(s)
 	vector<string>*     _refnames;    /// map from reference indexes to names
 	MUTEX_T             mutex_;       /// pthreads mutexes for per-file critical sections
-	
-	// used for output read buffer	
+
+	// used for output read buffer
 	size_t nthreads_;
 	std::vector<BTString> ptBufs_;
 	std::vector<size_t> ptCounts_;
 	int perThreadBufSize_;
-    bool reorder_;
+	bool reorder_;
 
 	// Output filenames for dumping
 	std::string dumpAlBase_;
@@ -1036,7 +1036,7 @@ public:
 	virtual HitSinkPerThread* create() const {
 		return new NGoodHitSinkPerThread(sink_, n_, max_, defaultMapq_, threadId_);
 	}
-	
+
 	virtual HitSinkPerThread* createMult(uint32_t m) const {
 		uint32_t max = max_ * (max_ == 0xffffffff ? 1 : m);
 		uint32_t n = n_ * (n_ == 0xffffffff ? 1 : m);
@@ -1179,7 +1179,7 @@ public:
 	virtual HitSinkPerThread* create() const {
 		return new NBestFirstStratHitSinkPerThread(sink_, n_, max_, 1, defaultMapq_, threadId_);
 	}
-	
+
 	virtual HitSinkPerThread* createMult(uint32_t m) const {
 		uint32_t max = max_ * (max_ == 0xffffffff ? 1 : m);
 		uint32_t n = n_ * (n_ == 0xffffffff ? 1 : m);
