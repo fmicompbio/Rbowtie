@@ -1,6 +1,4 @@
 ## Rbowtie
-[![Build Status (Linux)](https://travis-ci.com/fmicompbio/Rbowtie.svg?branch=master)](https://travis-ci.com/fmicompbio/Rbowtie)
-[![Build status (Windows)](https://ci.appveyor.com/api/projects/status/github/fmicompbio/Rbowtie?branch=master&svg=true)](https://ci.appveyor.com/project/fmicompbio/Rbowtie)
 
 The `Rbowtie` R package provides an R interface to the
 [`bowtie`](http://bowtie-bio.sourceforge.net/index.shtml) short-read aligner by
@@ -12,5 +10,15 @@ the read alignment to the generated index. These are used by the
 We recommend to use the `QuasR` package instead of using `Rbowtie` directly.
 
 ### Source code
+
 The source code for bowtie v1.2.3 was obtained from [https://github.com/BenLangmead/bowtie/archive/v1.2.3.tar.gz](https://github.com/BenLangmead/bowtie/archive/v1.2.3.tar.gz) on December 13, 2019. The folders genomes, reads, doc, indexes and scripts were not included into the package to reduce its size.
 
+### Software status
+
+| Platforms        |  OS              | R CMD check      | Coverage         |
+|:----------------:|:----------------:|:----------------:|:----------------:|
+| Travis CI | Linux | [![Travis CI build status](https://travis-ci.com/fmicompbio/Rbowtie.svg?branch=master)](https://travis-ci.com/fmicompbio/Rbowtie) | [![Codecov.io coverage status](https://codecov.io/github/fmicompbio/Rbowtie/coverage.svg?branch=master)](https://codecov.io/github/fmicompbio/Rbowtie) |
+| Appveyor | Windows | [![Build status (Windows)](https://ci.appveyor.com/api/projects/status/github/fmicompbio/Rbowtie?branch=master&svg=true)](https://ci.appveyor.com/project/fmicompbio/Rbowtie) | [![Codecov.io coverage status](https://codecov.io/github/fmicompbio/Rbowtie/coverage.svg?branch=master)](https://codecov.io/github/fmicompbio/Rbowtie) |
+| GitHub Actions | Linux/Windows/macOS | [![R build status](https://github.com/fmicompbio/Rbowtie/workflows/R-CMD-check/badge.svg)](https://github.com/fmicompbio/Rbowtie/actions) | [![Codecov.io coverage status](https://codecov.io/github/fmicompbio/Rbowtie/coverage.svg?branch=master)](https://codecov.io/github/fmicompbio/Rbowtie) |
+| Bioc ([_devel_](http://bioconductor.org/packages/devel/bioc/html/Rbowtie.html)) | Multiple | [![Bioconductor-devel Build Status](http://bioconductor.org/shields/build/devel/bioc/Rbowtie.svg)](http://bioconductor.org/checkResults/devel/bioc-LATEST/Rbowtie) | [![Codecov.io coverage status](https://codecov.io/github/fmicompbio/Rbowtie/coverage.svg?branch=master)](https://codecov.io/github/fmicompbio/Rbowtie) |
+| Bioc ([_release_](http://bioconductor.org/packages/release/bioc/html/Rbowtie.html)) | Multiple | [![Bioconductor-release Build Status](http://bioconductor.org/shields/build/release/bioc/Rbowtie.svg)](http://bioconductor.org/checkResults/release/bioc-LATEST/Rbowtie) | [![Codecov.io coverage status](https://codecov.io/github/fmicompbio/Rbowtie/coverage.svg?branch=master)](https://codecov.io/github/fmicompbio/Rbowtie) |

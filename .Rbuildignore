@@ -5,3 +5,4 @@
 ^.BBSoptions$
 ^codecov.yml$
 ^.Rbuildignore$
+^.github$
