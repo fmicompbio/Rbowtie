@@ -70,7 +70,7 @@ jobs:
         Rscript -e "install.packages('remotes')"
         Rscript -e "remotes::install_cran(c('rcmdcheck', 'BiocManager'))"
         Rscript -e "BiocManager::install(version = '${{ matrix.config.bioc }}')"
-        Rscript -e "todo1 <- unique(unlist(tools::package_dependencies(c('rmarkdown', 'knitr'), recursive = TRUE)));
+        Rscript -e "todo1 <- unique(c('rmarkdown', 'knitr'), unlist(tools::package_dependencies(c('rmarkdown', 'knitr'), recursive = TRUE)));
                     message('installing ', length(todo1), ' packages for vignette building: ', paste(todo1, collapse = ', '));
                     if (length(todo1)) { BiocManager::install(todo1) };
                     pcks <- remotes::dev_package_deps(dependencies = TRUE);
