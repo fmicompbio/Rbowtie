@@ -48,7 +48,12 @@ SEQAN_DIR = ./SeqAn-1.1
 SEQAN_INC = -isystem $(SEQAN_DIR)
 INC = $(if $(RELEASE_BUILD),-I$(CURDIR)/.include) $(SEQAN_INC) -I third_party
 WIN = 64
-BINPREF = c:/rtools40/mingw$(WIN)/bin/
+# try with empty BINPREF is gcc not found in default Rtools 4.0 folder
+ifeq ($(wildcard c:/rtools40/mingw$(WIN)/bin/gcc.exe),) 
+    BINPREF = 
+else 
+    BINPREF = c:/rtools40/mingw$(WIN)/bin/
+endif
 CPP = $(BINPREF)g++
 CXX = $(CPP)
 CC = $(BINPREF)gcc
