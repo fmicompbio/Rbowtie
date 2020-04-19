@@ -6,7 +6,13 @@
 #fi
 #CXX=`"${R_HOME}/bin/R" CMD config CXX`
 #CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXXFLAGS`
-CXX=`"${R_HOME}/bin/R" CMD config CXX`
+# try with empty BINPREF is g++ not found in default Rtools 4.0 folder
+ifeq ($(wildcard c:/rtools40/mingw64/bin/g++.exe),) 
+    BINPREF = 
+else 
+    BINPREF = c:/rtools40/mingw64/bin/
+endif
+CXX = $(BINPREF)g++
 CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXXFLAGS`
 
 all: SpliceMap
