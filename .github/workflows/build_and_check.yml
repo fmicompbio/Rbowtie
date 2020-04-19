@@ -33,7 +33,7 @@ jobs:
       uses: r-lib/actions/setup-r@master
       with:
         r-version: ${{ matrix.config.r }}
-#        rtools-version: ${{ matrix.config.rtools }}
+        rtools-version: ${{ matrix.config.rtools }}
 
     - name: R version
       run: Rscript -e 'R.version'
