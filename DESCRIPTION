@@ -1,8 +1,8 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.27.4
-Date: 2020-04-17
+Version: 1.27.5
+Date: 2020-04-19
 Author: Florian Hahne, Anita Lerch, Michael B Stadler
 Maintainer: Michael Stadler <michael.stadler@fmi.ch>
 Suggests: parallel, BiocStyle, knitr, rmarkdown

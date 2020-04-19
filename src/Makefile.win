@@ -41,12 +41,14 @@
 # - added Makefile.win
 #     use $(BINPREF) as path to gcc/g++ (needed to work with gcc-4.9.3-based toolchain)
 #     force 64-bit compilation even in i386 package (WIN = 64)
+#     manually set BINPREF (needed to work with Rtools 4.0)
 
 SEQAN_DIR = ./SeqAn-1.1
 # treat SeqAn as a sysdir to suppress warnings
 SEQAN_INC = -isystem $(SEQAN_DIR)
 INC = $(if $(RELEASE_BUILD),-I$(CURDIR)/.include) $(SEQAN_INC) -I third_party
 WIN = 64
+BINPREF = c:/rtools40/mingw$(WIN)/bin/
 CPP = $(BINPREF)g++
 CXX = $(CPP)
 CC = $(BINPREF)gcc
