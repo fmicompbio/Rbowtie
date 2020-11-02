@@ -1,31 +1,33 @@
 #ifndef HIT_H_
 #define HIT_H_
 
-#include <vector>
-#include <stdint.h>
-#include <iostream>
+#include <algorithm>
+#include <climits>
 #include <fstream>
-#include <string>
+#include <iomanip>
+#include <iostream>
 #include <stdexcept>
-#include <seqan/sequence.h>
+#include <stdint.h>
+#include <string>
+
 #include "alphabet.h"
 #include "assert_helpers.h"
-#include "threading.h"
 #include "bitset.h"
-#include "tokenize.h"
-#include "pat.h"
-#include "formats.h"
-#include "filebuf.h"
+#include "ds.h"
 #include "edit.h"
+#include "filebuf.h"
+#include "formats.h"
+#include "hit_set.h"
+#include "pat.h"
 #include "sstring.h"
-#include <algorithm>
+#include "threading.h"
+#include "tokenize.h"
 
 /**
  * Classes for dealing with reporting alignments.
  */
 
 using namespace std;
-using namespace seqan;
 
 /// Constants for the various output modes
 enum output_types {
@@ -58,15 +60,12 @@ public:
 	UPair             h;       /// reference index & offset
 	UPair             mh;      /// reference index & offset for mate
 	uint32_t            patId;   /// read index
-	String<char>        patName; /// read name
-	String<Dna5>        patSeq;  /// read sequence
-	String<Dna5>        colSeq;  /// original color sequence, not decoded
-	String<char>        quals;   /// read qualities
-	String<char>        colQuals;/// original color qualities, not decoded
+	BTString            patName; /// read name
+	BTDnaString         patSeq;  /// read sequence
+	BTString            quals;   /// read qualities
 	FixedBitset<1024>   mms;     /// nucleotide mismatch mask
-	FixedBitset<1024>   cmms;    /// color mismatch mask (if relevant)
-	vector<char>        refcs;   /// reference characters for mms
-	vector<char>        crefcs;  /// reference characters for cmms
+	EList<char>        refcs;   /// reference characters for mms
+	EList<char>        crefcs;  /// reference characters for cmms
 	uint32_t            oms;     /// # of other possible mappings; 0 -> this is unique
 	bool                fw;      /// orientation of read in alignment
 	bool                mfw;     /// orientation of mate in alignment
@@ -76,9 +75,7 @@ public:
 	uint8_t             mate;    /// matedness; 0 = not a mate
 	                             ///            1 = upstream mate
 	                             ///            2 = downstream mate
-	bool                color;   /// read is in colorspace?
 	char                primer;  /// primer base, for csfasta files
-	char                trimc;   /// trimmed color, for csfasta files
 	uint32_t            seed;    /// pseudo-random seed for aligned read
 
 	/**
@@ -90,7 +87,7 @@ public:
 		return true;
 	}
 
-	size_t length() const { return seqan::length(patSeq); }
+	size_t length() const { return patSeq.length(); }
 
 	Hit& operator = (const Hit &other) {
 		this->h       = other.h;
@@ -98,11 +95,8 @@ public:
 		this->patId   = other.patId;
 		this->patName = other.patName;
 		this->patSeq  = other.patSeq;
-		this->colSeq  = other.colSeq;
 		this->quals   = other.quals;
-		this->colQuals= other.colQuals;
 		this->mms     = other.mms;
-		this->cmms    = other.cmms;
 		this->refcs   = other.refcs;
 		this->crefcs  = other.crefcs;
 		this->oms     = other.oms;
@@ -112,8 +106,6 @@ public:
 		this->stratum = other.stratum;
 		this->cost    = other.cost;
 		this->mate    = other.mate;
-		this->color   = other.color;
-		this->cmms    = other.cmms;
 		this->seed    = other.seed;
 		return *this;
 	}
@@ -153,7 +145,7 @@ public:
 		const std::string& dumpMax,
 		bool onePairFile,
 		bool sampleMax,
-		vector<string>* refnames,
+		EList<string>* refnames,
 		size_t nthreads,
 		size_t perThreadBufSize,
 		bool reorder) :
@@ -171,7 +163,8 @@ public:
 		ptCounts_(nthreads_),
 		perThreadBufSize_(perThreadBufSize),
 		ptNumAligned_(NULL),
-		reorder_(reorder)
+		reorder_(reorder),
+		next_batch_to_flush_(0)
 	{
 		size_t nelt = 5 * nthreads_;
 		ptNumAligned_ = new uint64_t[nelt];
@@ -181,8 +174,18 @@ public:
 		ptNumUnaligned_ = ptNumReportedPaired_ + nthreads_;
 		ptNumMaxed_ = ptNumUnaligned_ + nthreads_;
 		ptBufs_.resize(nthreads_);
-		ptCounts_.resize(nthreads_, 0);
+		ptCounts_.resize(nthreads_);
+		ptCounts_.fillZero();
 		initDumps();
+
+		if (reorder_) {
+			reorderInfo_.resize(nthreads_);
+			for (size_t i = 0; i < nthreads_; i++) {
+				reorderInfo_[i].batchId = 0;
+				reorderInfo_[i].waiting = false;
+				reorderInfo_[i].flushed = true;
+			}
+		}
 	}
 
 	/**
@@ -222,13 +225,14 @@ public:
 	 */
 	virtual void reportHits(
 		const Hit *hptr,
-		vector<Hit> *hsptr,
+		EList<Hit> *hsptr,
 		size_t start,
 		size_t end,
 		size_t threadId,
 		int mapq,
 		int xms,
-		bool tally, size_t rdid)
+		bool tally,
+		PatternSourcePerThread& p)
 	{
 		assert_geq(end, start);
 		assert(nthreads_ > 1 || threadId == 0);
@@ -237,7 +241,6 @@ public:
 		}
 		const Hit& firstHit = (hptr == NULL) ? (*hsptr)[start] : *hptr;
 		bool paired = firstHit.mate > 0;
-		maybeFlush(threadId);
 		BTString& o = ptBufs_[threadId];
 		// Per-thread buffering is active
 		for(size_t i = start; i < end; i++) {
@@ -250,6 +253,11 @@ public:
 			}
 		}
 		ptCounts_[threadId]++;
+		if (reorder_ && reorderInfo_[threadId].flushed) {
+			reorderInfo_[threadId].batchId = p.batch_id();
+			reorderInfo_[threadId].flushed = false;
+		}
+		maybeFlush(threadId);
 		if(tally) {
 			tallyAlignments(threadId, end - start, paired);
 		}
@@ -283,13 +291,13 @@ public:
 			uint64_t tot = numAligned + numUnaligned + numMaxed;
 			double alPct = 0.0, unalPct = 0.0, maxPct = 0.0;
 			if(tot > 0) {
-				alPct   = 100.0 * (double)numAligned / (double)tot;
+				alPct   = 100.0 * (double)(numAligned + numMaxed) / (double)tot;
 				unalPct = 100.0 * (double)numUnaligned / (double)tot;
 				maxPct  = 100.0 * (double)numMaxed / (double)tot;
 			}
 			cerr << "# reads processed: " << tot << endl;
-			cerr << "# reads with at least one reported alignment: "
-			     << numAligned << " (" << fixed << setprecision(2)
+			cerr << "# reads with at least one alignment: "
+			     << numAligned + numMaxed << " (" << fixed << setprecision(2)
 			     << alPct << "%)" << endl;
 			cerr << "# reads that failed to align: "
 			     << numUnaligned << " (" << fixed << setprecision(2)
@@ -377,18 +385,10 @@ public:
 			if(!dumpAlBase_.empty()) {
 				ThreadSafe _ts(&dumpAlignLock_);
 				if(dumpAl_ == NULL) {
-					assert(dumpAlQv_ == NULL);
 					dumpAl_ = openOf(dumpAlBase_, 0, "");
 					assert(dumpAl_ != NULL);
-					if(p.bufa().qualOrigBufLen > 0) {
-						dumpAlQv_ = openOf(dumpAlBase_ + ".qual", 0, "");
-						assert(dumpAlQv_ != NULL);
-					}
 				}
-				dumpAl_->write(p.bufa().readOrigBuf, p.bufa().readOrigBufLen);
-				if(dumpAlQv_ != NULL) {
-					dumpAlQv_->write(p.bufa().qualOrigBuf, p.bufa().qualOrigBufLen);
-				}
+				*dumpAl_ << p.bufa().readOrigBuf;
 			}
 		} else {
 			// Dump paired-end read to an aligned-read file (or pair of
@@ -396,25 +396,13 @@ public:
 			if(!dumpAlBase_.empty()) {
 				ThreadSafe _ts(&dumpAlignLockPE_);
 				if(dumpAl_1_ == NULL) {
-					assert(dumpAlQv_1_ == NULL);
-					assert(dumpAlQv_2_ == NULL);
 					dumpAl_1_ = openOf(dumpAlBase_, 1, "");
 					dumpAl_2_ = openOf(dumpAlBase_, 2, "");
 					assert(dumpAl_1_ != NULL);
 					assert(dumpAl_2_ != NULL);
-					if(p.bufa().qualOrigBufLen > 0) {
-						dumpAlQv_1_ = openOf(dumpAlBase_ + ".qual", 1, "");
-						dumpAlQv_2_ = openOf(dumpAlBase_ + ".qual", 2, "");
-						assert(dumpAlQv_1_ != NULL);
-						assert(dumpAlQv_2_ != NULL);
-					}
 				}
-				dumpAl_1_->write(p.bufa().readOrigBuf, p.bufa().readOrigBufLen);
-				dumpAl_2_->write(p.bufb().readOrigBuf, p.bufb().readOrigBufLen);
-				if(dumpAlQv_1_ != NULL) {
-					dumpAlQv_1_->write(p.bufa().qualOrigBuf, p.bufa().qualOrigBufLen);
-					dumpAlQv_2_->write(p.bufb().qualOrigBuf, p.bufb().qualOrigBufLen);
-				}
+				*dumpAl_1_ << p.bufa().readOrigBuf;
+				*dumpAl_2_ << p.bufb().readOrigBuf;
 			}
 		}
 	}
@@ -432,18 +420,10 @@ public:
 			if(!dumpUnalBase_.empty()) {
 				ThreadSafe _ts(&dumpUnalLock_);
 				if(dumpUnal_ == NULL) {
-					assert(dumpUnalQv_ == NULL);
 					dumpUnal_ = openOf(dumpUnalBase_, 0, "");
 					assert(dumpUnal_ != NULL);
-					if(p.bufa().qualOrigBufLen > 0) {
-						dumpUnalQv_ = openOf(dumpUnalBase_ + ".qual", 0, "");
-						assert(dumpUnalQv_ != NULL);
-					}
 				}
-				dumpUnal_->write(p.bufa().readOrigBuf, p.bufa().readOrigBufLen);
-				if(dumpUnalQv_ != NULL) {
-					dumpUnalQv_->write(p.bufa().qualOrigBuf, p.bufa().qualOrigBufLen);
-				}
+				*dumpUnal_ << p.bufa().readOrigBuf;
 			}
 		} else {
 			// Dump paired-end read to an unaligned-read file (or pair
@@ -457,17 +437,9 @@ public:
 					dumpUnal_2_ = openOf(dumpUnalBase_, 2, "");
 					assert(dumpUnal_1_ != NULL);
 					assert(dumpUnal_2_ != NULL);
-					if(p.bufa().qualOrigBufLen > 0) {
-						dumpUnalQv_1_ = openOf(dumpUnalBase_ + ".qual", 1, "");
-						dumpUnalQv_2_ = openOf(dumpUnalBase_ + ".qual", 2, "");
-					}
 				}
-				dumpUnal_1_->write(p.bufa().readOrigBuf, p.bufa().readOrigBufLen);
-				dumpUnal_2_->write(p.bufb().readOrigBuf, p.bufb().readOrigBufLen);
-				if(dumpUnalQv_1_ != NULL) {
-					dumpUnalQv_1_->write(p.bufa().qualOrigBuf, p.bufa().qualOrigBufLen);
-					dumpUnalQv_2_->write(p.bufb().qualOrigBuf, p.bufb().qualOrigBufLen);
-				}
+				*dumpUnal_1_ << p.bufa().readOrigBuf;
+				*dumpUnal_2_ << p.bufb().readOrigBuf;
 			}
 		}
 	}
@@ -490,14 +462,8 @@ public:
 				if(dumpMax_ == NULL) {
 					dumpMax_ = openOf(dumpMaxBase_, 0, "");
 					assert(dumpMax_ != NULL);
-					if(p.bufa().qualOrigBufLen > 0) {
-						dumpMaxQv_ = openOf(dumpMaxBase_ + ".qual", 0, "");
-					}
 				}
-				dumpMax_->write(p.bufa().readOrigBuf, p.bufa().readOrigBufLen);
-				if(dumpMaxQv_ != NULL) {
-					dumpMaxQv_->write(p.bufa().qualOrigBuf, p.bufa().qualOrigBufLen);
-				}
+				*dumpMax_ << p.bufa().readOrigBuf.toZBuf();
 			}
 		} else {
 			// Dump paired-end read to a maxed-out-read file (or pair
@@ -505,23 +471,13 @@ public:
 			if(!dumpMaxBase_.empty()) {
 				ThreadSafe _ts(&dumpMaxLockPE_);
 				if(dumpMax_1_ == NULL) {
-					assert(dumpMaxQv_1_ == NULL);
-					assert(dumpMaxQv_2_ == NULL);
 					dumpMax_1_ = openOf(dumpMaxBase_, 1, "");
 					dumpMax_2_ = openOf(dumpMaxBase_, 2, "");
 					assert(dumpMax_1_ != NULL);
 					assert(dumpMax_2_ != NULL);
-					if(p.bufa().qualOrigBufLen > 0) {
-						dumpMaxQv_1_ = openOf(dumpMaxBase_ + ".qual", 1, "");
-						dumpMaxQv_2_ = openOf(dumpMaxBase_ + ".qual", 2, "");
-					}
 				}
-				dumpMax_1_->write(p.bufa().readOrigBuf, p.bufa().readOrigBufLen);
-				dumpMax_2_->write(p.bufb().readOrigBuf, p.bufb().readOrigBufLen);
-				if(dumpMaxQv_1_ != NULL) {
-					dumpMaxQv_1_->write(p.bufa().qualOrigBuf, p.bufa().qualOrigBufLen);
-					dumpMaxQv_2_->write(p.bufb().qualOrigBuf, p.bufb().qualOrigBufLen);
-				}
+				*dumpMax_1_ << p.bufa().readOrigBuf;
+				*dumpMax_2_ << p.bufb().readOrigBuf;
 			}
 		}
 	}
@@ -531,7 +487,7 @@ public:
 	 * want to print a placeholder when output is chained.
 	 */
 	virtual void reportMaxed(
-		vector<Hit>& hs,
+		EList<Hit>& hs,
 		size_t threadId,
 		PatternSourcePerThread& p)
 	{
@@ -551,11 +507,42 @@ public:
 
 protected:
 
+	void reorder(size_t threadId, bool force) {
+		COND_LOCK_T<COND_MUTEX_T> l(reorder_mutex_);
+		size_t last_batch_flushed = next_batch_to_flush_;
+		if (next_batch_to_flush_ == reorderInfo_[threadId].batchId || force) {
+			if (!force) {
+				out_.writeString(ptBufs_[threadId]);
+				next_batch_to_flush_ += 1;
+				reorderInfo_[threadId].flushed = true;
+			}
+			for (size_t i = 0; i < reorderInfo_.size();) {
+				if (reorderInfo_[i].batchId == next_batch_to_flush_ &&
+				    (reorderInfo_[i].waiting  || force)) {
+					out_.writeString(ptBufs_[i]);
+					reorderInfo_[i].flushed = true;
+					next_batch_to_flush_ += 1;
+					i = 0; // we may have skipped over a flushable batch
+				} else
+					i++;
+			}
+			if (next_batch_to_flush_ - last_batch_flushed > 1)
+				output_cond.notify_all();
+		} else {
+			reorderInfo_[threadId].waiting = true;
+			while (!reorderInfo_[threadId].flushed) {
+				output_cond.wait(reorder_mutex_);
+			}
+			reorderInfo_[threadId].waiting = false;
+		}
+	}
 	/**
 	 * Flush thread's output buffer and reset both buffer and count.
 	 */
 	void flush(size_t threadId, bool force) {
-		{
+		if (reorder_) {
+			reorder(threadId, force);
+		} else {
 			ThreadSafe _ts(&mutex_); // flush
 			out_.writeString(ptBufs_[threadId]);
 		}
@@ -589,16 +576,27 @@ protected:
 		out_.close();
 	}
 
+	struct PtBufInfo {
+		size_t batchId;
+		bool flushed;
+		bool waiting;
+	};
+
 	OutFileBuf&         out_;        /// the alignment output stream(s)
-	vector<string>*     _refnames;    /// map from reference indexes to names
+	EList<string>*     _refnames;    /// map from reference indexes to names
 	MUTEX_T             mutex_;       /// pthreads mutexes for per-file critical sections
 
 	// used for output read buffer
 	size_t nthreads_;
-	std::vector<BTString> ptBufs_;
-	std::vector<size_t> ptCounts_;
-	int perThreadBufSize_;
+	EList<BTString> ptBufs_;
+	EList<size_t> ptCounts_;
+	size_t perThreadBufSize_;
+
+	size_t next_batch_to_flush_;
 	bool reorder_;
+	EList<PtBufInfo> reorderInfo_;
+	COND_MUTEX_T reorder_mutex_;
+	COND_VAR_T output_cond;
 
 	// Output filenames for dumping
 	std::string dumpAlBase_;
@@ -618,17 +616,6 @@ protected:
 	std::ofstream *dumpMax_;      // for single-ended reads
 	std::ofstream *dumpMax_1_;    // for first mates
 	std::ofstream *dumpMax_2_;    // for second mates
-
-	// Output streams for dumping qualities
-	std::ofstream *dumpAlQv_;     // for single-ended reads
-	std::ofstream *dumpAlQv_1_;   // for first mates
-	std::ofstream *dumpAlQv_2_;   // for second mates
-	std::ofstream *dumpUnalQv_;   // for single-ended reads
-	std::ofstream *dumpUnalQv_1_; // for first mates
-	std::ofstream *dumpUnalQv_2_; // for second mates
-	std::ofstream *dumpMaxQv_;    // for single-ended reads
-	std::ofstream *dumpMaxQv_1_;  // for first mates
-	std::ofstream *dumpMaxQv_2_;  // for second mates
 
 	/**
 	 * Open an ofstream with given name; output error message and quit
@@ -674,9 +661,6 @@ protected:
 		dumpAl_       = dumpAl_1_     = dumpAl_2_     = NULL;
 		dumpUnal_     = dumpUnal_1_   = dumpUnal_2_   = NULL;
 		dumpMax_      = dumpMax_1_    = dumpMax_2_    = NULL;
-		dumpAlQv_     = dumpAlQv_1_   = dumpAlQv_2_   = NULL;
-		dumpUnalQv_   = dumpUnalQv_1_ = dumpUnalQv_2_ = NULL;
-		dumpMaxQv_    = dumpMaxQv_1_  = dumpMaxQv_2_  = NULL;
 		dumpAlignFlag_   = !dumpAlBase_.empty();
 		dumpUnalignFlag_ = !dumpUnalBase_.empty();
 		dumpMaxedFlag_   = !dumpMaxBase_.empty();
@@ -692,15 +676,6 @@ protected:
 		if(dumpMax_      != NULL) { dumpMax_->close();      delete dumpMax_; }
 		if(dumpMax_1_    != NULL) { dumpMax_1_->close();    delete dumpMax_1_; }
 		if(dumpMax_2_    != NULL) { dumpMax_2_->close();    delete dumpMax_2_; }
-		if(dumpAlQv_     != NULL) { dumpAlQv_->close();     delete dumpAlQv_; }
-		if(dumpAlQv_1_   != NULL) { dumpAlQv_1_->close();   delete dumpAlQv_1_; }
-		if(dumpAlQv_2_   != NULL) { dumpAlQv_2_->close();   delete dumpAlQv_2_; }
-		if(dumpUnalQv_   != NULL) { dumpUnalQv_->close();   delete dumpUnalQv_; }
-		if(dumpUnalQv_1_ != NULL) { dumpUnalQv_1_->close(); delete dumpUnalQv_1_; }
-		if(dumpUnalQv_2_ != NULL) { dumpUnalQv_2_->close(); delete dumpUnalQv_2_; }
-		if(dumpMaxQv_    != NULL) { dumpMaxQv_->close();    delete dumpMaxQv_; }
-		if(dumpMaxQv_1_  != NULL) { dumpMaxQv_1_->close();  delete dumpMaxQv_1_; }
-		if(dumpMaxQv_2_  != NULL) { dumpMaxQv_2_->close();  delete dumpMaxQv_2_; }
 	}
 
 	// Locks for dumping
@@ -755,7 +730,7 @@ public:
 	virtual ~HitSinkPerThread() { }
 
 	/// Return the vector of retained hits
-	vector<Hit>& retainedHits()   { return _hits; }
+	EList<Hit>& retainedHits()   { return _hits; }
 
 	/// Finalize current read
 	virtual uint32_t finishRead(PatternSourcePerThread& p, bool report, bool dump) {
@@ -797,7 +772,7 @@ public:
 			}
 			xms++;
 			_sink.reportHits(NULL, &_bufferedHits, 0, _bufferedHits.size(),
-			                 threadId_, mapq, xms, true, p.rdid());
+			                 threadId_, mapq, xms, true, p);
 			_sink.dumpAlign(p);
 			ret = (uint32_t)_bufferedHits.size();
 			_bufferedHits.clear();
@@ -920,9 +895,9 @@ protected:
 	/// # hits reported to this HitSink so far (not all of which were
 	/// necesssary reported to _sink)
 	uint64_t    _numValidHits;
-	vector<Hit> _hits; /// Repository for retained hits
+	EList<Hit> _hits; /// Repository for retained hits
 	/// Buffered hits, to be reported and flushed at end of read-phase
-	vector<Hit> _bufferedHits;
+	EList<Hit> _bufferedHits;
 
 	// Following variables are declared in the parent but maintained in
 	// the concrete subcalsses
@@ -1310,8 +1285,6 @@ public:
 	VerboseHitSink(
 		OutFileBuf& out,
 		int offBase,
-		bool colorSeq,
-		bool colorQual,
 		bool printCost,
 		const Bitset& suppressOuts,
 		bool fullRef,
@@ -1320,7 +1293,7 @@ public:
 		const std::string& dumpMax,
 		bool onePairFile,
 		bool sampleMax,
-		std::vector<std::string>* refnames,
+		EList<std::string>* refnames,
 		size_t nthreads,
 		size_t perThreadBufSize,
 		int partition = 0) :
@@ -1337,8 +1310,6 @@ public:
 			false),
 		partition_(partition),
 		offBase_(offBase),
-		colorSeq_(colorSeq),
-		colorQual_(colorQual),
 		cost_(printCost),
 		suppress_(suppressOuts),
 		fullRef_(fullRef)
@@ -1347,12 +1318,10 @@ public:
 	static void append(
 		BTString& o,
 		const Hit& h,
-		const vector<string>* refnames,
+		const EList<string>* refnames,
 		bool fullRef,
 		int partition,
 		int offBase,
-		bool colorSeq,
-		bool colorQual,
 		bool cost,
 		const Bitset& suppress);
 
@@ -1362,16 +1331,14 @@ public:
 	 */
 	virtual void append(BTString& o, const Hit& h, int mapq, int xms) {
 		VerboseHitSink::append(o, h, _refnames,
-		                       fullRef_, partition_, offBase_,
-		                       colorSeq_, colorQual_, cost_,
-		                       suppress_);
+		                       fullRef_, partition_, offBase_, cost_, suppress_);
 	}
 
 	/**
 	 * See hit.cpp
 	 */
 	virtual void reportMaxed(
-		vector<Hit>& hs,
+		EList<Hit>& hs,
 		size_t threadId,
 		PatternSourcePerThread& p);
 
@@ -1380,8 +1347,6 @@ private:
 	int      offBase_;     /// Add this to reference offsets before outputting.
 	                       /// (An easy way to make things 1-based instead of
 	                       /// 0-based)
-	bool     colorSeq_;    /// true -> print colorspace alignment sequence in colors
-	bool     colorQual_;   /// true -> print colorspace quals as originals, not decoded
 	bool     cost_;        /// true -> print statum and cost
 	Bitset   suppress_;    /// output fields to suppress
 	bool fullRef_;         /// print full reference name

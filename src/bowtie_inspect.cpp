@@ -1,17 +1,16 @@
 #include <string>
-#include <vector>
 #include <iostream>
 #include <getopt.h>
 #include <stdexcept>
-#include <seqan/find.h>
 
 #include "assert_helpers.h"
+#include "ds.h"
 #include "endian_swap.h"
 #include "ebwt.h"
 #include "reference.h"
+#include "sstring.h"
 
 using namespace std;
-using namespace seqan;
 
 static bool showVersion = false; // just print version and quit?
 int verbose             = 0;  // be talkative
@@ -62,7 +61,7 @@ static void printUsage(ostream& out) {
 	<< "Options:" << endl;
 	if(wrapper == "basic-0") {
 		out << "  --large-index      force inspection of the 'large' index, even if a" << endl
-			<< "                     'small' one is present." << endl;
+		    << "                     'small' one is present." << endl;
 	}
 	out << "  -a/--across <int>  Number of characters across in FASTA output (default: 60)" << endl
 	<< "  -n/--names         Print reference sequence names only" << endl
@@ -75,9 +74,9 @@ static void printUsage(ostream& out) {
 	if(wrapper.empty()) {
 		cerr << endl
 		     << "*** Warning ***" << endl
-			 << "'boowtie-inspect' was run directly.  It is recommended "
-			 << "to use the wrapper script instead."
-			 << endl << endl;
+		     << "'bowtie-inspect' was run directly.  It is recommended "
+		     << "to use the wrapper script instead."
+		     << endl << endl;
 	}
 }
 
@@ -220,14 +219,12 @@ void print_ref_sequence(
  */
 void print_ref_sequences(
 	ostream& fout,
-	bool color,
-	const vector<string>& refnames,
+	const EList<string>& refnames,
 	const TIndexOffU* plen,
 	const string& adjustedEbwtFileBase)
 {
 	BitPairReference ref(
 		adjustedEbwtFileBase, // input basename
-		color,                // true -> expect colorspace reference
 		false,                // sanity-check reference
 		NULL,                 // infiles
 		NULL,                 // originals
@@ -262,7 +259,7 @@ void print_ref_sequences(
 			ref,
 			refnames[i],
 			i,
-			plen[i] + (color ? 1 : 0));
+			plen[i]);
 	}
 #endif
 }
@@ -274,10 +271,10 @@ void print_ref_sequences(
 template<typename TStr>
 void print_index_sequences(
 	ostream& fout,
-	Ebwt<TStr>& ebwt,
+	Ebwt& ebwt,
 	const BitPairReference& refs)
 {
-	vector<string>* refnames = &(ebwt.refnames());
+	EList<string>* refnames = &(ebwt.refnames());
 
 	TStr cat_ref;
 	ebwt.restore(cat_ref);
@@ -286,7 +283,7 @@ void print_index_sequences(
 	string curr_ref_seq = "";
 	TIndexOffU curr_ref_len = OFF_MASK;
 	uint32_t last_text_off = 0;
-	size_t orig_len = seqan::length(cat_ref);
+	size_t orig_len = cat_ref.length();
 	TIndexOffU tlen = OFF_MASK;
 	bool first = true;
 	for(size_t i = 0; i < orig_len; i++) {
@@ -320,7 +317,7 @@ void print_index_sequences(
 			if (textoff_adj - last_text_off > 1)
 				curr_ref_seq += string(textoff_adj - last_text_off - 1, 'N');
 
-			curr_ref_seq.push_back(getValue(cat_ref,i));
+			curr_ref_seq.push_back("ACGT"[(int)cat_ref[i]]);
 			last_text_off = textoff;
 			first = false;
 		}
@@ -340,14 +337,14 @@ static char *argv0 = NULL;
 
 void print_index_sequence_names(const string& fname, ostream& fout)
 {
-	vector<string> p_refnames;
+	EList<string> p_refnames;
 	readEbwtRefnames(fname, p_refnames);
 	for(size_t i = 0; i < p_refnames.size(); i++) {
 		cout << p_refnames[i] << endl;
 	}
 }
 
-typedef Ebwt<String<Dna, Packed<Alloc<> > > > TPackedEbwt;
+// typedef Ebwt<String<Dna, Packed<Alloc<> > > > TPackedEbwt;
 
 /**
  * Print a short summary of what's in the index and its flags.
@@ -359,11 +356,9 @@ void print_index_summary(
 {
 	int32_t flags = readFlags(fname);
 	int32_t flagsr = readFlags(fname + ".rev");
-	bool color = readEbwtColor(fname);
 	bool entireReverse = readEntireReverse(fname + ".rev");
-	TPackedEbwt ebwt(
+	Ebwt ebwt(
 		fname,
-		color,                // index is colorspace
 		-1,                   // don't require entire reverse
 		true,                 // index is for the forward direction
 		-1,                   // offrate (-1 = index default)
@@ -377,13 +372,12 @@ void print_index_summary(
 		verbose,              // be talkative at startup?
 		false,                // pass up memory exceptions?
 		false);               // sanity check?
-	vector<string> p_refnames;
+	EList<string> p_refnames;
 	readEbwtRefnames(fname, p_refnames);
 	if(extra) {
 		cout << "Flags" << '\t' << (-flags) << endl;
 		cout << "Reverse flags" << '\t' << (-flagsr) << endl;
 	}
-	cout << "Colorspace" << '\t' << (color ? "1" : "0") << endl;
 	if(extra) {
 		cout << "Concat then reverse" << '\t' << (entireReverse ? "1" : "0") << endl;
 		cout << "Reverse then concat" << '\t' << (entireReverse ? "0" : "1") << endl;
@@ -397,7 +391,7 @@ void print_index_summary(
 	for(size_t i = 0; i < ebwt.nPat(); i++) {
 		cout << "Sequence-" << (i+1)
 		     << '\t' << p_refnames[refs.expandIdx((uint32_t)i)]
-		     << '\t' << (ebwt.plen()[i] + (color ? 1 : 0))
+		     << '\t' << (ebwt.plen()[i])
 		     << endl;
 	}
 	if(extra) {
@@ -419,10 +413,8 @@ static void driver(
 		print_index_sequence_names(adjustedEbwtFileBase, cout);
 		return;
 	}
-	bool color = readEbwtColor(adjustedEbwtFileBase);
 	BitPairReference refs(
 		adjustedEbwtFileBase,
-		color,
 		false,
 		NULL,
 		NULL,
@@ -437,9 +429,8 @@ static void driver(
 		print_index_summary(adjustedEbwtFileBase, cout, refs);
 	} else {
 		// Initialize Ebwt object
-		TPackedEbwt ebwt(
+		Ebwt ebwt(
 			adjustedEbwtFileBase,
-			color,                // index is colorspace
 			-1,                   // don't care about entire-reverse
 			true,                 // index is for the forward direction
 			-1,                   // offrate (-1 = index default)
@@ -455,14 +446,13 @@ static void driver(
 			false);               // sanity check?
 		// Load whole index into memory
 		if(refFromEbwt) {
-			ebwt.loadIntoMemory(-1, -1, true, false);
-			print_index_sequences(cout, ebwt, refs);
+			ebwt.loadIntoMemory(-1, true, false);
+			print_index_sequences<BTRefString >(cout, ebwt, refs);
 		} else {
-			vector<string> refnames;
+			EList<string> refnames;
 			readEbwtRefnames(adjustedEbwtFileBase, refnames);
 			print_ref_sequences(
 				cout,
-				readEbwtColor(ebwtFileBase),
 				refnames,
 				ebwt.plen(),
 				adjustedEbwtFileBase);
@@ -481,7 +471,7 @@ int main(int argc, char **argv) {
 	try {
 		string ebwtFile;  // read serialized Ebwt from this file
 		string query;   // read query string(s) from this file
-		vector<string> queries;
+		EList<string> queries;
 		string outfile; // write query results to this file
 		argv0 = argv[0];
 		parseOptions(argc, argv);

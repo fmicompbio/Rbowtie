@@ -2,11 +2,10 @@
 #include <fstream>
 #include <string>
 #include <cassert>
-#include <seqan/index.h>
-#include <seqan/sequence.h>
-#include <seqan/file.h>
 #include <getopt.h>
+
 #include "assert_helpers.h"
+#include "ds.h"
 #include "endian_swap.h"
 #include "ebwt.h"
 #include "formats.h"
@@ -16,6 +15,7 @@
 #include "ref_read.h"
 #include "filebuf.h"
 #include "reference.h"
+#include "sstring.h"
 
 /**
  * \file Driver for the bowtie-build indexing tool.
@@ -48,7 +48,6 @@ static bool justRef;
 static int reverseType;
 static int nthreads;
 static string wrapper;
-bool color;
 
 
 static void resetOptions() {
@@ -65,7 +64,7 @@ static void resetOptions() {
 	showVersion  = 0;     // just print version and quit?
 	doubleEbwt   = true;  // build forward and reverse Ebwts
 	//   Ebwt parameters
-	lineRate     = Ebwt<String<Dna> >::default_lineRate;  // a "line" is 64 bytes
+	lineRate     = Ebwt::default_lineRate;  // a "line" is 64 bytes
 	linesPerSide = 1;  // 1 64-byte line on a side
 	offRate      = 5;  // sample 1 out of 32 SA elts
 	ftabChars    = 10; // 10 chars in initial lookup table
@@ -78,7 +77,6 @@ static void resetOptions() {
 	reverseType  = REF_READ_REVERSE_EACH;
 	nthreads     = 1;
 	wrapper.clear();
-	color        = false;
 }
 
 // Argument constants for getopts
@@ -115,14 +113,12 @@ static void printUsage(ostream& out) {
 	    << "Options:" << endl
 	    << "    -f                      reference files are Fasta (default)" << endl
 	    << "    -c                      reference sequences given on cmd line (as <seq_in>)" << endl;
-		if(wrapper == "basic-0") {
+	if(wrapper == "basic-0") {
 		out << "    --large-index           force generated index to be 'large', even if ref" << endl
-			<< "                            has fewer than 4 billion nucleotides" << endl;
-		}
-	    out << "    -C/--color              build a colorspace index" << endl
-	    << "    -a/--noauto             disable automatic -p/--bmax/--dcv memory-fitting" << endl
+		    << "                            has fewer than 4 billion nucleotides" << endl;
+	}
+	out << "    -a/--noauto             disable automatic -p/--bmax/--dcv memory-fitting" << endl
 	    << "    -p/--packed             use packed strings internally; slower, uses less mem" << endl
-	    //<< "    -B                      build both letter- and colorspace indexes" << endl
 	    << "    --bmax <int>            max bucket sz for blockwise suffix-array builder" << endl
 	    //<< "    --bmaxmultsqrt <int>    max bucket sz as multiple of sqrt(ref len)" << endl
 	    << "    --bmaxdivn <int>        max bucket sz as divisor of ref len (default: 4)" << endl
@@ -141,16 +137,14 @@ static void printUsage(ostream& out) {
 	    << "    -q/--quiet              verbose output (for debugging)" << endl
 	    << "    -h/--help               print detailed description of tool and its options" << endl
 	    << "    --usage                 print this usage message" << endl
-	    << "    --version               print version information and quit" << endl
-	    ;
-		if(wrapper.empty()) {
-			cerr << endl
-			     << "*** Warning ***" << endl
-				 << "'" << tool_name << "' was run directly.  It is recommended "
-				 << "that you run the wrapper script 'bowtie-build' instead."
-				 << endl << endl;
-		}
-		
+	    << "    --version               print version information and quit" << endl;
+	if(wrapper.empty()) {
+		cerr << endl
+		     << "*** Warning ***" << endl
+		     << "'" << tool_name << "' was run directly.  It is recommended "
+		     << "that you run the wrapper script 'bowtie-build' instead."
+		     << endl << endl;
+	}
 }
 
 static const char *short_options = "qraph?nscfl:i:o:t:h:3C";
@@ -179,7 +173,6 @@ static struct option long_options[] = {
 	{(char*)"ntoa",         no_argument,       0,            ARG_NTOA},
 	{(char*)"justref",      no_argument,       0,            '3'},
 	{(char*)"noref",        no_argument,       0,            'r'},
-	{(char*)"color",        no_argument,       0,            'C'},
 	{(char*)"threads",      required_argument, 0,            ARG_THREADS},
 	{(char*)"usage",        no_argument,       0,            ARG_USAGE},
 	{(char*)"wrapper",      required_argument, 0,            ARG_WRAPPER},
@@ -195,7 +188,7 @@ static struct option long_options[] = {
 template<typename T>
 static int parseNumber(T lower, const char *errmsg) {
 	char *endPtr= NULL;
-	T t = (T)strtoll(optarg, &endPtr, 10);
+	T t = (T)strtol(optarg, &endPtr, 10);
 	if (endPtr != NULL) {
 		if (t < lower) {
 			cerr << errmsg << endl;
@@ -226,7 +219,6 @@ static void parseOptions(int argc, const char **argv) {
 			case 'f': format = FASTA; break;
 			case 'c': format = CMDLINE; break;
 			case 'p': packed = true; break;
-			case 'C': color = true; break;
 			case 'l':
 				lineRate = parseNumber<int>(3, "-l/--lineRate arg must be at least 3");
 				break;
@@ -309,13 +301,13 @@ static void parseOptions(int argc, const char **argv) {
  */
 template<typename TStr>
 static void driver(const string& infile,
-                   vector<string>& infiles,
+                   EList<string>& infiles,
                    const string& outfile,
                    bool reverse = false)
 {
-	vector<FileBuf*> is;
+	EList<FileBuf*> is;
 	bool bisulfite = false;
-	RefReadInParams refparams(color, reverse ? reverseType : REF_READ_FORWARD, nsToAs, bisulfite);
+	RefReadInParams refparams(reverse ? reverseType : REF_READ_FORWARD, nsToAs, bisulfite);
 	assert_gt(infiles.size(), 0);
 	if(format == CMDLINE) {
 		// Adapt sequence strings to stringstreams open for input
@@ -360,8 +352,8 @@ static void driver(const string& infile,
 	// Vector for the ordered list of "records" comprising the input
 	// sequences.  A record represents a stretch of unambiguous
 	// characters in one of the input sequences.
-	vector<RefRecord> szs;
-	vector<uint32_t> plens;
+	EList<RefRecord> szs;
+	EList<uint32_t> plens;
 	std::pair<size_t, size_t> sztot;
 	{
 		if(verbose) cout << "Reading reference sizes" << endl;
@@ -385,30 +377,10 @@ static void driver(const string& infile,
 			// the genome into a vector of RefRecords.  The input
 			// streams are reset once it's done.
 			writeU<int32_t>(fout3, 1, bigEndian); // endianness sentinel
-			if(color) {
-				refparams.color = false;
-				// Make sure the .3.ebwt and .4.ebwt files contain
-				// nucleotides; not colors
-				TIndexOff numSeqs = 0;
-				fastaRefReadSizes(is, szs, plens, refparams, &bpout, numSeqs);
-				refparams.color = true;
-				writeU<TIndexOffU>(fout3, (TIndexOffU)szs.size(), bigEndian); // write # records
-				for(size_t i = 0; i < szs.size(); i++) {
-					szs[i].write(fout3, bigEndian);
-				}
-				szs.clear();
-				plens.clear();
-				// Now read in the colorspace size records; these are
-				// the ones that were indexed
-				TIndexOff numSeqs2 = 0;
-				sztot = fastaRefReadSizes(is, szs, plens, refparams, NULL, numSeqs2);
-				assert_geq(numSeqs, numSeqs2);
-			} else {
-				TIndexOff numSeqs = 0;
-				sztot = fastaRefReadSizes(is, szs, plens, refparams, &bpout, numSeqs);
-				writeU<TIndexOffU>(fout3, (TIndexOffU)szs.size(), bigEndian); // write # records
-				for(size_t i = 0; i < szs.size(); i++) szs[i].write(fout3, bigEndian);
-			}
+			TIndexOff numSeqs = 0;
+			sztot = fastaRefReadSizes(is, szs, plens, refparams, &bpout, numSeqs);
+			writeU<TIndexOffU>(fout3, (TIndexOffU)szs.size(), bigEndian); // write # records
+			for(size_t i = 0; i < szs.size(); i++) szs[i].write(fout3, bigEndian);
 			if(sztot.first == 0) {
 				cerr << "Error: No unambiguous stretches of characters in the input.  Aborting..." << endl;
 				throw 1;
@@ -421,7 +393,6 @@ static void driver(const string& infile,
 			if(sanityCheck) {
 				BitPairReference bpr(
 					outfile, // ebwt basename
-					color,   // expect color?
 					true,    // sanity check?
 					&infiles,// files to check against
 					NULL,    // sequences to check against
@@ -439,18 +410,6 @@ static void driver(const string& infile,
 			// genome into a vector of RefRecords
 			TIndexOff numSeqs = 0;
 			sztot = fastaRefReadSizes(is, szs, plens, refparams, NULL, numSeqs);
-#ifndef NDEBUG
-			if(refparams.color) {
-				refparams.color = false;
-				vector<RefRecord> szs2;
-				vector<uint32_t> plens2;
-				TIndexOff numSeqs2 = 0;
-				fastaRefReadSizes(is, szs2, plens2, refparams, NULL, numSeqs2);
-				assert_leq(numSeqs, numSeqs2);
-				// One less color than base
-				refparams.color = true;
-			}
-#endif
 		}
 	}
 	if(justRef) return;
@@ -458,32 +417,33 @@ static void driver(const string& infile,
 	assert_gt(sztot.second, 0);
 	assert_gt(szs.size(), 0);
 	// Construct Ebwt from input strings and parameters
-	Ebwt<TStr> ebwt(refparams.color ? 1 : 0,
-	                lineRate,
-	                linesPerSide,
-	                offRate,      // suffix-array sampling rate
-	                -1,           // ISA sampling rate
-	                ftabChars,    // number of chars in initial arrow-pair calc
-			nthreads,
-	                outfile,      // basename for .?.ebwt files
-	                !reverse,     // fw
-	                !entireSA,    // useBlockwise
-	                bmax,         // block size for blockwise SA builder
-	                bmaxMultSqrt, // block size as multiplier of sqrt(len)
-	                bmaxDivN,     // block size as divisor of len
-	                noDc? 0 : dcv,// difference-cover period
-	                is,           // list of input streams
-	                szs,          // list of reference sizes
-	                plens,        // list of not-all-gap reference sequence lengths
-	                (TIndexOffU)sztot.first,  // total size of all unambiguous ref chars
-	                refparams,    // reference read-in parameters
-	                seed,         // pseudo-random number generator seed
-	                -1,           // override offRate
-	                -1,           // override isaRate
-	                verbose,      // be talkative
-	                autoMem,      // pass exceptions up to the toplevel so that we can adjust memory settings automatically
-	                sanityCheck,  // verify results and internal consistency
-	                false);       // are we building a bt2 index?
+	Ebwt ebwt(TStr(),
+		  packed,
+		  lineRate,
+		  linesPerSide,
+		  offRate,      // suffix-array sampling rate
+		  -1,           // ISA sampling rate
+		  ftabChars,    // number of chars in initial arrow-pair calc
+		  nthreads,
+		  outfile,      // basename for .?.ebwt files
+		  !reverse,     // fw
+		  !entireSA,    // useBlockwise
+		  bmax,         // block size for blockwise SA builder
+		  bmaxMultSqrt, // block size as multiplier of sqrt(len)
+		  bmaxDivN,     // block size as divisor of len
+		  noDc? 0 : dcv,// difference-cover period
+		  is,           // list of input streams
+		  szs,          // list of reference sizes
+		  plens,        // list of not-all-gap reference sequence lengths
+		  (TIndexOffU)sztot.first,  // total size of all unambiguous ref chars
+		  refparams,    // reference read-in parameters
+		  seed,         // pseudo-random number generator seed
+		  -1,           // override offRate
+		  -1,           // override isaRate
+		  verbose,      // be talkative
+		  autoMem,      // pass exceptions up to the toplevel so that we can adjust memory settings automatically
+		  sanityCheck,  // verify results and internal consistency
+		  false);       // are we building a bt2 index?
 	// Note that the Ebwt is *not* resident in memory at this time.  To
 	// load it into memory, call ebwt.loadIntoMemory()
 	if(verbose) {
@@ -495,30 +455,29 @@ static void driver(const string& infile,
 		// multiple texts, what we'll get back is the joined,
 		// padded string, not a list)
 		ebwt.loadIntoMemory(
-			refparams.color ? 1 : 0,
 			-1,
 			false,
 			false);
-		TStr s2; ebwt.restore(s2);
+		BTRefString s2; ebwt.restore(s2);
 		ebwt.evictFromMemory();
 		{
-			TStr joinedss = Ebwt<TStr>::join(
+			BTRefString joinedss = Ebwt::join<BTRefString >(
 				is,          // list of input streams
 				szs,         // list of reference sizes
 				(TIndexOffU)sztot.first, // total size of all unambiguous ref chars
 				refparams,   // reference read-in parameters
 				seed);       // pseudo-random number generator seed
 			if(refparams.reverse == REF_READ_REVERSE) {
-				reverseInPlace(joinedss);
+				joinedss.reverse();
 			}
-			assert_eq(length(joinedss), length(s2));
-			assert_eq(joinedss, s2);
+			assert_eq(joinedss.length(), s2.length());
+			assert(sstr_eq(joinedss, s2));
 		}
 		if(verbose) {
-			if(length(s2) < 1000) {
-				cout << "Passed restore check: " << s2 << endl;
+			if(s2.length() < 1000) {
+				cout << "Passed restore check: " << s2.toZBuf() << endl;
 			} else {
-				cout << "Passed restore check: (" << length(s2) << " chars)" << endl;
+				cout << "Passed restore check: (" << s2.length() << " chars)" << endl;
 			}
 		}
 	}
@@ -537,7 +496,7 @@ extern "C" {
 		resetOptions();
 
 		string infile;
-		vector<string> infiles;
+		EList<string> infiles;
 		string outfile;
 
 		parseOptions(argc, argv);
@@ -633,7 +592,7 @@ extern "C" {
 			Timer timer(cout, "Total time for call to driver() for forward index: ", verbose);
 			if(!packed) {
 				try {
-					driver<String<Dna, Alloc<> > >(infile, infiles, outfile);
+					driver<BTRefString >(infile, infiles, outfile);
 				} catch(bad_alloc& e) {
 					if(autoMem) {
 						cerr << "Switching to a packed string representation." << endl;
@@ -644,7 +603,7 @@ extern "C" {
 				}
 			}
 			if(packed) {
-				driver<String<Dna, Packed<Alloc<> > > >(infile, infiles, outfile);
+				driver<S2bDnaString>(infile, infiles, outfile);
 			}
 		}
 		if(doubleEbwt) {
@@ -652,7 +611,7 @@ extern "C" {
 			Timer timer(cout, "Total time for backward call to driver() for mirror index: ", verbose);
 			if(!packed) {
 				try {
-					driver<String<Dna, Alloc<> > >(infile, infiles, outfile + ".rev", true);
+					driver<BTRefString >(infile, infiles, outfile + ".rev", true);
 				} catch(bad_alloc& e) {
 					if(autoMem) {
 						cerr << "Switching to a packed string representation." << endl;
@@ -663,7 +622,7 @@ extern "C" {
 				}
 			}
 			if(packed) {
-				driver<String<Dna, Packed<Alloc<> > > >(infile, infiles, outfile + ".rev", true);
+				driver<S2bDnaString>(infile, infiles, outfile + ".rev", true);
 			}
 		}
 		return 0;

@@ -3,7 +3,6 @@
 #
 # edited for cross-platform compilation as part of Rbowtie:
 # - set BITS=64 (comment parts that are related to setting BITS)
-# - replace 'uname -p' by 'uname -m'
 # - set POPCNT_CAPABILITY = 0 on MACOS
 # - set NO_TBB=1
 # - removed files
@@ -34,7 +33,7 @@
 #     reads/e_coli_10000snp.fq
 # - commented unnecessary buld targets
 # - added SpliceMap targets
-# - added installation instrauctions for bowtie and SpliceMap
+# - added installation instructions for bowtie and SpliceMap
 # - added installation targets to 'all'
 #     ../inst/bowtie
 #     ../inst/SpliceMap
@@ -43,10 +42,8 @@
 #     force 64-bit compilation even in i386 package (WIN = 64)
 #     manually set BINPREF here and also in SpliceMap/Makefile.win (needed to work with Rtools 4.0)
 
-SEQAN_DIR = ./SeqAn-1.1
-# treat SeqAn as a sysdir to suppress warnings
-SEQAN_INC = -isystem $(SEQAN_DIR)
-INC = $(if $(RELEASE_BUILD),-I$(CURDIR)/.include) $(SEQAN_INC) -I third_party
+ARCH = $(shell uname -m)
+INC = $(if $(RELEASE_BUILD),-I$(CURDIR)/.include) -I third_party
 WIN = 64
 # try with empty BINPREF is gcc not found in default Rtools 4.0 folder
 ifeq ($(wildcard c:/rtools40/mingw$(WIN)/bin/gcc.exe),) 
@@ -66,10 +63,9 @@ EXTRA_CFLAGS =
 EXTRA_CXXFLAGS =
 CFLAGS += $(EXTRA_CFLAGS)
 CXXFLAGS += $(EXTRA_CXXFLAGS)
+WARNING_FLAGS = -Wall -Wno-unused-parameter -Wno-reorder
 BITS = 64
 NO_TBB = 1
-WARNING_FLAGS = -Wall -Wno-unused-parameter -Wno-reorder \
-				-Wno-unused-local-typedefs
 
 RELEASE_DEPENDENCIES = $(if $(RELEASE_BUILD),static-libs)
 
@@ -105,6 +101,7 @@ ifneq (,$(findstring Darwin,$(shell uname)))
     POPCNT_CAPABILITY = 0
 	ifneq (,$(findstring 13,$(shell uname -r)))
 		CPP = clang++
+		CXX = $(CPP)
 		CC = clang
 		override EXTRA_FLAGS += -stdlib=libstdc++
 	endif
@@ -131,11 +128,6 @@ PTHREAD_PKG =
 PTHREAD_LIB =
 PTHREAD_DEF =
 
-#if we're not using TBB, then we can't use queuing locks
-ifeq (1,$(NO_TBB))
-	NO_QUEUELOCK=1
-endif
-
 ifeq (1,$(MINGW))
 	PTHREAD_LIB = 
 	override EXTRA_FLAGS += -static-libgcc -static-libstdc++
@@ -147,15 +139,16 @@ ifeq (1,$(NO_SPINLOCK))
 	override EXTRA_FLAGS += -DNO_SPINLOCK
 endif
 
-ifneq (1,$(NO_TBB))
-	LIBS += $(PTHREAD_LIB) -ltbb
-	LIBS += -ltbbmalloc$(if $(RELEASE_BUILD),,_proxy)
-	override EXTRA_FLAGS += -DWITH_TBB
-else
-	LIBS += $(PTHREAD_LIB)
+
+LIBS += $(PTHREAD_LIB)
+ifeq (1, $(WITH_TBBMALLOC))
+	LIBS += -ltbbmalloc
 endif
 
 POPCNT_CAPABILITY ?= 1
+ifeq (aarch64,$(shell uname -m))
+	POPCNT_CAPABILITY=0
+endif
 ifeq (1, $(POPCNT_CAPABILITY))
     override EXTRA_FLAGS += -DPOPCNT_CAPABILITY
     INC += -I third_party
@@ -178,11 +171,15 @@ ifeq (1,$(WITH_THREAD_PROFILING))
 	override EXTRA_FLAGS += -DPER_THREAD_TIMING=1
 endif
 
-ifeq (1,$(WITH_AFFINITY))
-	override EXTRA_FLAGS += -DWITH_AFFINITY=1
+OTHER_CPPS = ccnt_lut.cpp ref_read.cpp alphabet.cpp shmem.cpp \
+             edit.cpp ebwt.cpp
+
+ifneq (1, $(NO_SPINLOCK))
+	OTHER_CPPS += bt2_locks.cpp
 endif
 
 ifeq (1,$(WITH_QUEUELOCK))
+	OTHER_CPPS += bt2_locks.cpp
 	override EXTRA_FLAGS += -DWITH_QUEUELOCK=1
 endif
 
@@ -190,21 +187,16 @@ ifeq (1,$(WITH_FINE_TIMER))
 	override EXTRA_FLAGS += -DUSE_FINE_TIMER=1
 endif
 
-OTHER_CPPS = ccnt_lut.cpp ref_read.cpp alphabet.cpp shmem.cpp \
-             edit.cpp ebwt.cpp
-
 ifeq (1,$(WITH_COHORTLOCK))
 	override EXTRA_FLAGS += -DWITH_COHORTLOCK=1
 	OTHER_CPPS += cohort.cpp cpu_numa_info.cpp
 endif
 
-ifeq (1,$(NO_TBB))
-	OTHER_CPPS += tinythread.cpp
-endif
+OTHER_CPPS += tinythread.cpp
 
 SEARCH_CPPS = qual.cpp pat.cpp ebwt_search_util.cpp ref_aligner.cpp \
               log.cpp hit_set.cpp sam.cpp \
-              color.cpp color_dec.cpp hit.cpp
+              hit.cpp
 SEARCH_CPPS_MAIN = $(SEARCH_CPPS) bowtie_main.cpp
 
 BUILD_CPPS =
@@ -214,7 +206,7 @@ SEARCH_FRAGMENTS = $(wildcard search_*_phase*.c)
 VERSION = $(shell cat VERSION)
 
 #BITS=32
-#ifeq (x86_64,$(shell uname -m))
+#ifeq (1,$(shell echo __LP64__ | $(CC) -P -E - | tr -d '\n'))
 #	BITS=64
 #endif
 ## msys will always be 32 bit so look at the cpu arch instead.
@@ -224,18 +216,12 @@ VERSION = $(shell cat VERSION)
 #	endif
 #endif
 
-#ifeq (1,$(LINUX))
-#    ifeq (x86_64, $(shell uname -m))
-#        BITS=64
-#    endif
-#endif
-
 #ifeq (32,$(BITS))
 #    $(error bowtie2 compilation requires a 64-bit platform )
 #endif
 
-DEBUG_FLAGS = -O0 -g3 -m64
-RELEASE_FLAGS = -O3 -m64
+DEBUG_FLAGS = -O0 -g3
+RELEASE_FLAGS = -O3
 NOASSERT_FLAGS = -DNDEBUG
 FILE_FLAGS = -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 
@@ -244,8 +230,7 @@ BIN_LIST = bowtie-build-s \
 
 BIN_LIST_AUX = 
 
-GENERAL_LIST = SeqAn-1.1 \
-               bowtie \
+GENERAL_LIST = bowtie \
                bowtie-build \
                bowtie-inspect \
                $(PTHREAD_PKG) \
@@ -275,11 +260,20 @@ all: $(BIN_LIST) ../inst/bowtie SpliceMap/SpliceMap ../inst/SpliceMap
 
 allall: $(BIN_LIST) $(BIN_LIST_AUX)
 
+
+DATE_FMT = %Y-%m-%dT%H:%M:%S
+ifdef SOURCE_DATE_EPOCH
+    BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "+$(DATE_FMT)" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "+$(DATE_FMT)" 2>/dev/null || date -u "+$(DATE_FMT)")
+    BUILD_HOST := reproduciblebuild
+else
+    BUILD_DATE ?= $(shell date "+$(DATE_FMT)")
+    BUILD_HOST ?= `hostname`
+endif
 DEFS=-fno-strict-aliasing \
      -DBOWTIE_VERSION="\"`cat VERSION`\"" \
-     -DBUILD_HOST="\"`hostname`\"" \
-     -DBUILD_TIME="\"`date`\"" \
-     -DCOMPILER_VERSION="\"`R CMD config CXX -v 2>&1 | grep \" version \"`\"" \
+     -DBUILD_HOST="\"$(BUILD_HOST)\"" \
+     -DBUILD_TIME="\"$(BUILD_DATE)\"" \
+     -DCOMPILER_VERSION="\"`$(CXX) -v 2>&1 | tail -1`\"" \
      $(FILE_FLAGS) \
      $(PTHREAD_DEF) \
      $(PREF_DEF) \
@@ -424,16 +418,16 @@ bowtie-align-s: ebwt_search.cpp $(SEARCH_CPPS) $(OTHER_CPPS) $(HEADERS) $(SEARCH
 #bowtie-src.zip: $(SRC_PKG_LIST)
 #	chmod a+x scripts/*.sh scripts/*.pl
 #	mkdir .src.tmp
-#	mkdir .src.tmp/bowtie-$(VERSION)
+#	mkdir .src.tmp/bowtie-$(VERSION)-src
 #	zip -r tmp.zip $(SRC_PKG_LIST)
-#	mv tmp.zip .src.tmp/bowtie-$(VERSION)
-#	cd .src.tmp/bowtie-$(VERSION) ; unzip tmp.zip ; rm -f tmp.zip
-#	cd .src.tmp ; zip -r $@ bowtie-$(VERSION)
-#	cp .src.tmp/$@ .
+#	mv tmp.zip .src.tmp/bowtie-$(VERSION)-src
+#	cd .src.tmp/bowtie-$(VERSION)-src ; unzip tmp.zip ; rm -f tmp.zip
+#	cd .src.tmp ; zip -r bowtie-$(VERSION)-src.zip bowtie-$(VERSION)-src
+#	cp .src.tmp/bowtie-$(VERSION)-src.zip .
 #	rm -rf .src.tmp
 
 #bowtie-bin.zip: $(RELEASE_DEPENDENCIES) $(BIN_PKG_LIST) $(BIN_LIST) $(BIN_LIST_AUX) 
-#	$(eval PKG_DIR=bowtie-$(VERSION)-$(if $(MACOS),macos,$(if $(MINGW),mingw,linux))-x86_64)
+#	$(eval PKG_DIR=bowtie-$(VERSION)-$(if $(MACOS),macos,$(if $(MINGW),mingw,linux))-$(ARCH))
 #	chmod a+x scripts/*.sh scripts/*.pl
 #	rm -rf .bin.tmp
 #	mkdir .bin.tmp
@@ -479,9 +473,11 @@ SpliceMap/SpliceMap:
 
 #doc/manual.html: MANUAL.markdown
 #	echo "<h1>Table of Contents</h1>" > .tmp.head
-#	pandoc -T "Bowtie Manual" -B .tmp.head \
+#	pandoc -B .tmp.head \
+#	       --ascii \
 #	       --css style.css -o $@ \
 #	       --from markdown --to HTML \
+#	       --metadata title:"Bowtie Manual" \
 #	       --table-of-contents $^
 
 #MANUAL: MANUAL.markdown
@@ -515,21 +511,20 @@ SpliceMap/SpliceMap:
 #	fi
 
 #static-libs:
-#	if [[ ! -d $(CURDIR)/.lib || ! -d $(CURDIR)/.inc ]]; then \
-#		mkdir $(CURDIR)/.lib $(CURDIR)/.include ; \
+#	if [ ! -d $(CURDIR)/.lib ]; then \
+#		mkdir $(CURDIR)/.lib ; \
 #	fi ; \
-#	if [[ `uname` = "Darwin" ]]; then \
+#	if [ ! -d $(CURDIR)/.include ]; then \
+#		mkdir $(CURDIR)/.include ; \
+#	fi ;
+#	if [ `uname` == "Darwin" ]; then \
 #		export CFLAGS=-mmacosx-version-min=10.9 ; \
 #		export CXXFLAGS=-mmacosx-version-min=10.9 ; \
 #	fi ; \
 #	DL=$$([ `which wget` ] && echo "wget --no-check-certificate --content-disposition" || echo "curl -LJkO") ; \
 #	cd /tmp ; \
 #	$$DL https://zlib.net/zlib-1.2.11.tar.gz && tar xzf zlib-1.2.11.tar.gz && cd zlib-1.2.11 ; \
-#	$(if $(MINGW), mingw32-make -f win32/Makefile.gcc, ./configure --static && make) && cp libz.a $(CURDIR)/.lib && cp zconf.h zlib.h $(CURDIR)/.include ; \
-#	cd .. ; \
-#	$$DL https://github.com/01org/tbb/archive/2017_U8.tar.gz && tar xzf tbb-2017_U8.tar.gz && cd tbb-2017_U8; \
-#	$(if $(MINGW), mingw32-make compiler=gcc arch=ia64 runtime=mingw, make) extra_inc=big_iron.inc -j4 \
-#	&& cp -r include/tbb $(CURDIR)/.include && cp build/*_release/*.a $(CURDIR)/.lib
+#	$(if $(MINGW), mingw32-make -f win32/Makefile.gcc, ./configure --static && make) && cp libz.a $(CURDIR)/.lib && cp zconf.h zlib.h $(CURDIR)/.include ;
 
 .PHONY: clean
 clean:
@@ -537,7 +532,7 @@ clean:
 	bowtie_prof \
 	$(addsuffix .exe,$(BIN_LIST) $(BIN_LIST_AUX) bowtie_prof) \
 	bowtie-src.zip bowtie-bin.zip
-	rm -f core.*
+	rm -f *.core
 	rm -f bowtie-align-s-master* bowtie-align-s-no-io* 
 	rm -rf .lib .include
 	rm -f SpliceMap/*.o SpliceMap/SpliceMap SpliceMap/amalgamateSAM SpliceMap/getSpliceMapUnmapped SpliceMap/fuseReorder SpliceMap/runSpliceMap_QuasR SpliceMap/sortsam

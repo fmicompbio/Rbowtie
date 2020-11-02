@@ -10,17 +10,20 @@
 #include <iostream>
 #include <set>
 #include <stdint.h>
-#include "seqan/sequence.h"
+#include <vector>
+
+#include "aligner_metrics.h"
 #include "assert_helpers.h"
+#include "ds.h"
 #include "ebwt.h"
 #include "pat.h"
 #include "range.h"
-#include "range_source.h"
 #include "range_chaser.h"
+#include "range_source.h"
 #include "ref_aligner.h"
 #include "reference.h"
-#include "aligner_metrics.h"
 #include "search_globals.h"
+#include "sstring.h"
 
 #ifdef PER_THREAD_TIMING
 /// Based on http://stackoverflow.com/questions/16862620/numa-get-current-node-core
@@ -92,8 +95,8 @@ public:
 	 * Allocate a vector of n Aligners; use destroy(std::vector...) to
 	 * free the memory.
 	 */
-	virtual std::vector<Aligner*>* create(uint32_t n) const {
-		std::vector<Aligner*>* v = new std::vector<Aligner*>;
+	virtual EList<Aligner*>* create(uint32_t n) const {
+		EList<Aligner*>* v = new EList<Aligner*>;
 		for(uint32_t i = 0; i < n; i++) {
 			v->push_back(create());
 			assert(v->back() != NULL);
@@ -109,7 +112,7 @@ public:
 	}
 
 	/// Free memory associated with an aligner list
-	virtual void destroy(std::vector<Aligner*>* als) const {
+	virtual void destroy(EList<Aligner*>* als) const {
 		assert(als != NULL);
 		// Free all of the Aligners
 		for(size_t i = 0; i < als->size(); i++) {
@@ -183,8 +186,8 @@ protected:
 	uint32_t qUpto_; /// Number of reads to align before stopping
 	const AlignerFactory&                  alignFact_;
 	const PatternSourcePerThreadFactory&   patsrcFact_;
-	std::vector<Aligner *>*                aligners_;
-	std::vector<PatternSourcePerThread *>* patsrcs_;
+	EList<Aligner *>*                aligners_;
+	EList<PatternSourcePerThread *>* patsrcs_;
 };
 
 /**
@@ -242,10 +245,10 @@ public:
 #ifdef PER_THREAD_TIMING
 		uint64_t ncpu_changeovers = 0;
 		uint64_t nnuma_changeovers = 0;
-		
+
 		int current_cpu = 0, current_node = 0;
 		get_cpu_and_node(current_cpu, current_node);
-	
+
 		std::stringstream ss;
 		std::string msg;
 		ss << "thread: " << tid << " time: ";
@@ -363,10 +366,10 @@ protected:
 	const AlignerFactory&                  alignSEFact_;
 	const AlignerFactory&                  alignPEFact_;
 	const PatternSourcePerThreadFactory&   patsrcFact_;
-	std::vector<Aligner *>*                alignersSE_;
-	std::vector<Aligner *>*                alignersPE_;
+	EList<Aligner *>*                alignersSE_;
+	EList<Aligner *>*                alignersPE_;
 	bool *                                 seOrPe_;
-	std::vector<PatternSourcePerThread *>* patsrcs_;
+	EList<PatternSourcePerThread *>* patsrcs_;
 };
 
 /**
@@ -379,14 +382,14 @@ class UnpairedAlignerV2 : public Aligner {
 	typedef RangeSourceDriver<TRangeSource> TDriver;
 public:
 	UnpairedAlignerV2(
-		EbwtSearchParams<String<Dna> >* params,
+		EbwtSearchParams* params,
 		TDriver* driver,
-		RangeChaser<String<Dna> >* rchase,
+		RangeChaser* rchase,
 		HitSink& sink,
 		const HitSinkPerThreadFactory& sinkPtFactory,
 		HitSinkPerThread* sinkPt,
-		vector<String<Dna5> >& os,
-		const BitPairReference* refs,
+		EList<BTRefString >& os, // TODO: remove this, not used
+		BitPairReference *refs,
 		bool rangeMode,
 		bool verbose,
 		bool quiet,
@@ -395,12 +398,12 @@ public:
 		int *btCnt = NULL,
 		AlignerMetrics *metrics = NULL) :
 		Aligner(true, rangeMode),
-		refs_(refs),
 		doneFirst_(true),
 		firstIsFw_(true),
 		chase_(false),
 		sinkPtFactory_(sinkPtFactory),
 		sinkPt_(sinkPt),
+		refs_(refs),
 		params_(params),
 		rchase_(rchase),
 		driver_(driver),
@@ -468,19 +471,12 @@ public:
 	{
 		bool ebwtFw = ra.ebwt->fw();
 		params_->setFw(ra.fw);
-		assert_eq(bufa_->color, color);
 		return params_->reportHit(
 				ra.fw ? (ebwtFw? bufa_->patFw    : bufa_->patFwRev) :
 				        (ebwtFw? bufa_->patRc    : bufa_->patRcRev),
 				ra.fw ? (ebwtFw? &bufa_->qual    : &bufa_->qualRev) :
 				        (ebwtFw? &bufa_->qualRev : &bufa_->qual),
 				&bufa_->name,
-				bufa_->color,
-				bufa_->primer,
-				bufa_->trimc,
-				colorExEnds,
-				snpPhred,
-				refs_,
 				ebwtFw,
 				ra.mms,                   // mismatch positions
 				ra.refcs,                 // reference characters for mms
@@ -572,7 +568,7 @@ public:
 
 protected:
 
-	// Reference sequences (needed for colorspace decoding)
+        // Reference sequences (needed for colorspace decoding)
 	const BitPairReference* refs_;
 
 	// Progress state
@@ -585,10 +581,10 @@ protected:
 	HitSinkPerThread* sinkPt_;
 
 	// State for alignment
-	EbwtSearchParams<String<Dna> >* params_;
+	EbwtSearchParams* params_;
 
 	// State for getting alignments from ranges statefully
-	RangeChaser<String<Dna> >* rchase_;
+	RangeChaser* rchase_;
 
 	// Range-finding state
 	TDriver* driver_;
@@ -610,19 +606,19 @@ template<typename TRangeSource>
 class PairedBWAlignerV1 : public Aligner {
 
 	typedef std::pair<TIndexOffU,TIndexOffU> UPair;
-	typedef std::vector<UPair> UPairVec;
-	typedef std::vector<Range> TRangeVec;
+	typedef EList<UPair> UPairVec;
+	typedef EList<Range> TRangeVec;
 	typedef RangeSourceDriver<TRangeSource> TDriver;
 	typedef std::pair<uint64_t, uint64_t> TU64Pair;
 	typedef std::set<TU64Pair> TSetPairs;
 
 public:
 	PairedBWAlignerV1(
-		EbwtSearchParams<String<Dna> >* params,
+		EbwtSearchParams* params,
 		TDriver* driver1Fw, TDriver* driver1Rc,
 		TDriver* driver2Fw, TDriver* driver2Rc,
-		RefAligner<String<Dna5> >* refAligner,
-		RangeChaser<String<Dna> >* rchase,
+		RefAligner* refAligner,
+		RangeChaser* rchase,
 		HitSink& sink,
 		const HitSinkPerThreadFactory& sinkPtFactory,
 		HitSinkPerThread* sinkPt,
@@ -879,7 +875,6 @@ protected:
 		bool ret;
 		assert(!params_->sink().exceededOverThresh());
 		params_->setFw(rL.fw);
-		assert_eq(bufL->color, color);
 		// Print upstream mate first
 		ret = params_->reportHit(
 				rL.fw ? (ebwtFwL?  bufL->patFw  :  bufL->patFwRev) :
@@ -887,12 +882,6 @@ protected:
 				rL.fw ? (ebwtFwL? &bufL->qual    : &bufL->qualRev) :
 				        (ebwtFwL? &bufL->qualRev : &bufL->qual),
 				&bufL->name,
-				bufL->color,
-				bufL->primer,
-				bufL->trimc,
-				colorExEnds,
-				snpPhred,
-				refs_,
 				ebwtFwL,
 				rL.mms,                       // mismatch positions
 				rL.refcs,                     // reference characters for mms
@@ -914,19 +903,12 @@ protected:
 			return true; // can happen when -m is set
 		}
 		params_->setFw(rR.fw);
-		assert_eq(bufR->color, color);
 		ret = params_->reportHit(
 				rR.fw ? (ebwtFwR?  bufR->patFw  :  bufR->patFwRev) :
 					    (ebwtFwR?  bufR->patRc  :  bufR->patRcRev),
 				rR.fw ? (ebwtFwR? &bufR->qual    : &bufR->qualRev) :
 				        (ebwtFwR? &bufR->qualRev : &bufR->qual),
 				&bufR->name,
-				bufR->color,
-				bufR->primer,
-				bufR->trimc,
-				colorExEnds,
-				snpPhred,
-				refs_,
 				ebwtFwR,
 				rR.mms,                       // mismatch positions
 				rR.refcs,                     // reference characters for mms
@@ -982,17 +964,17 @@ protected:
 		if(doneFw_) fw = !fw;
 		// 'seq' gets sequence of outstanding mate w/r/t the forward
 		// reference strand
-		const String<Dna5>& seq  = fw ? (off1 ? patsrc_->bufb().patFw   :
+		const BTDnaString& seq  = fw ? (off1 ? patsrc_->bufb().patFw   :
 		                                        patsrc_->bufa().patFw)  :
 		                                (off1 ? patsrc_->bufb().patRc   :
 		                                        patsrc_->bufa().patRc);
 		// 'seq' gets qualities of outstanding mate w/r/t the forward
 		// reference strand
-		const String<char>& qual = fw ? (off1 ? patsrc_->bufb().qual  :
+		const BTString& qual = fw ? (off1 ? patsrc_->bufb().qual  :
 		                                        patsrc_->bufa().qual) :
 		                                (off1 ? patsrc_->bufb().qualRev  :
 		                                        patsrc_->bufa().qualRev);
-		uint32_t qlen = (uint32_t)seqan::length(seq);  // length of outstanding mate
+		uint32_t qlen = (uint32_t)seq.length();  // length of outstanding mate
 		uint32_t alen = (off1 ? patsrc_->bufa().length() :
 		                        patsrc_->bufb().length());
 		int minins = minInsert_;
@@ -1069,8 +1051,8 @@ protected:
 		// Check if there's not enough space in the range to fit an
 		// alignment for the outstanding mate.
 		if(end - begin < qlen) return false;
-		std::vector<Range> ranges;
-		std::vector<TIndexOffU> offs;
+		EList<Range> ranges;
+		EList<TIndexOffU> offs;
 		refAligner_->find(1, tidx, refs_, seq, qual, begin, end, ranges,
 		                  offs, doneFw_ ? &pairs_rc_ : &pairs_fw_,
 		                  toff, fw);
@@ -1364,14 +1346,14 @@ protected:
 	bool delayedChase2Rc_;
 
 	// For searching for outstanding mates
-	RefAligner<String<Dna5> >* refAligner_;
+	RefAligner* refAligner_;
 
 	// Temporary HitSink; to be deleted
 	const HitSinkPerThreadFactory& sinkPtFactory_;
 	HitSinkPerThread* sinkPt_;
 
 	// State for alignment
-	EbwtSearchParams<String<Dna> >* params_;
+	EbwtSearchParams* params_;
 
 	// Paired-end boundaries
 	const uint32_t minInsert_;
@@ -1397,7 +1379,7 @@ protected:
 	const bool fw2_;
 
 	// State for getting alignments from ranges statefully
-	RangeChaser<String<Dna> >* rchase_;
+	RangeChaser* rchase_;
 
 	// true -> be talkative
 	bool verbose_;
@@ -1501,20 +1483,20 @@ template<typename TRangeSource>
 class PairedBWAlignerV2 : public Aligner {
 
 	typedef std::pair<TIndexOffU,TIndexOffU> UPair;
-	typedef std::vector<UPair> UPairVec;
-	typedef std::vector<Range> TRangeVec;
+	typedef EList<UPair> UPairVec;
+	typedef EList<Range> TRangeVec;
 	typedef RangeSourceDriver<TRangeSource> TDriver;
 	typedef std::pair<uint64_t, uint64_t> TU64Pair;
 	typedef std::set<TU64Pair> TSetPairs;
 
 public:
 	PairedBWAlignerV2(
-		EbwtSearchParams<String<Dna> >* params,
-		EbwtSearchParams<String<Dna> >* paramsSe1,
-		EbwtSearchParams<String<Dna> >* paramsSe2,
+		EbwtSearchParams* params,
+		EbwtSearchParams* paramsSe1,
+		EbwtSearchParams* paramsSe2,
 		TDriver* driver,
-		RefAligner<String<Dna5> >* refAligner,
-		RangeChaser<String<Dna> >* rchase,
+		RefAligner* refAligner,
+		RangeChaser* rchase,
 		HitSink& sink,
 		const HitSinkPerThreadFactory& sinkPtFactory,
 		HitSinkPerThread* sinkPt,
@@ -1752,7 +1734,6 @@ protected:
 		bool ret;
 		assert(!params_->sink().exceededOverThresh());
 		params_->setFw(rL.fw);
-		assert_eq(bufL->color, color);
 		// Print upstream mate first
 		ret = params_->reportHit(
 				rL.fw ? (ebwtFwL?  bufL->patFw  :  bufL->patFwRev) :
@@ -1760,12 +1741,6 @@ protected:
 				rL.fw ? (ebwtFwL? &bufL->qual    : &bufL->qualRev) :
 				        (ebwtFwL? &bufL->qualRev : &bufL->qual),
 				&bufL->name,
-				bufL->color,
-				bufL->primer,
-				bufL->trimc,
-				colorExEnds,
-				snpPhred,
-				refs_,
 				ebwtFwL,
 				rL.mms,                       // mismatch positions
 				rL.refcs,                     // reference characters for mms
@@ -1787,19 +1762,12 @@ protected:
 			return true; // can happen when -m is set
 		}
 		params_->setFw(rR.fw);
-		assert_eq(bufR->color, color);
 		ret = params_->reportHit(
 				rR.fw ? (ebwtFwR?  bufR->patFw  :  bufR->patFwRev) :
 				        (ebwtFwR?  bufR->patRc  :  bufR->patRcRev),
 				rR.fw ? (ebwtFwR? &bufR->qual    : &bufR->qualRev) :
 				        (ebwtFwR? &bufR->qualRev : &bufR->qual),
 				&bufR->name,
-				bufR->color,
-				bufR->primer,
-				bufR->trimc,
-				colorExEnds,
-				snpPhred,
-				refs_,
 				ebwtFwR,
 				rR.mms,                       // mismatch positions
 				rR.refcs,                     // reference characters for mms
@@ -1826,13 +1794,12 @@ protected:
 	 * for each mate.
 	 */
 	void reportSe(const Range& r, UPair h, uint32_t tlen) {
-		EbwtSearchParams<String<Dna> >*params = (r.mate1 ? paramsSe1_ : paramsSe2_);
+		EbwtSearchParams* params = (r.mate1 ? paramsSe1_ : paramsSe2_);
 		assert(!(r.mate1 ? doneSe1_ : doneSe2_));
 		params->setFw(r.fw);
 		Read* buf = r.mate1 ? bufa_ : bufb_;
 		bool ebwtFw = r.ebwt->fw();
 		uint32_t len = r.mate1 ? alen_ : blen_;
-		assert_eq(buf->color, color);
 		// Print upstream mate first
 		if(params->reportHit(
 			r.fw ? (ebwtFw?  buf->patFw   :  buf->patFwRev) :
@@ -1840,12 +1807,6 @@ protected:
 			r.fw ? (ebwtFw? &buf->qual    : &buf->qualRev) :
 			       (ebwtFw? &buf->qualRev : &buf->qual),
 			&buf->name,
-			buf->color,
-			buf->primer,
-			buf->trimc,
-			colorExEnds,
-			snpPhred,
-			refs_,
 			ebwtFw,
 			r.mms,                   // mismatch positions
 			r.refcs,                 // reference characters for mms
@@ -1925,18 +1886,18 @@ protected:
 		bool fw = range.mate1 ? fw2_ : fw1_; // whether outstanding mate is fw/rc
 		if(!pairFw) fw = !fw;
 		// 'seq' = sequence for opposite mate
-		const String<Dna5>& seq  =
+		const BTDnaString& seq  =
 			fw ? (range.mate1 ? patsrc_->bufb().patFw   :
 		                        patsrc_->bufa().patFw)  :
 		         (range.mate1 ? patsrc_->bufb().patRc   :
 		                        patsrc_->bufa().patRc);
 		// 'qual' = qualities for opposite mate
-		const String<char>& qual =
+		const BTString& qual =
 			fw ? (range.mate1 ? patsrc_->bufb().qual  :
 			                    patsrc_->bufa().qual) :
 			     (range.mate1 ? patsrc_->bufb().qualRev :
 			                    patsrc_->bufa().qualRev);
-		uint32_t qlen = (uint32_t)seqan::length(seq);  // length of outstanding mate
+		uint32_t qlen = (uint32_t)seq.length();  // length of outstanding mate
 		uint32_t alen = (range.mate1 ? patsrc_->bufa().length() :
 		                               patsrc_->bufb().length());
 		int minins = minInsert_;
@@ -2004,8 +1965,8 @@ protected:
 		// Check if there's not enough space in the range to fit an
 		// alignment for the outstanding mate.
 		if(end - begin < qlen) return false;
-		std::vector<Range> ranges;
-		std::vector<TIndexOffU> offs;
+		EList<Range> ranges;
+		EList<TIndexOffU> offs;
 		refAligner_->find(1, tidx, refs_, seq, qual, begin, end, ranges,
 		                  offs, pairFw ? &pairs_fw_ : &pairs_rc_,
 		                  toff, fw);
@@ -2046,7 +2007,7 @@ protected:
 	bool donePe_, doneSe1_, doneSe2_;
 
 	// For searching for outstanding mates
-	RefAligner<String<Dna5> >* refAligner_;
+	RefAligner* refAligner_;
 
 	// Temporary HitSink; to be deleted
 	const HitSinkPerThreadFactory& sinkPtFactory_;
@@ -2054,9 +2015,9 @@ protected:
 	HitSinkPerThread* sinkPtSe1_, * sinkPtSe2_;
 
 	// State for alignment
-	EbwtSearchParams<String<Dna> >* params_;
+	EbwtSearchParams* params_;
 	// for single-end:
-	EbwtSearchParams<String<Dna> >* paramsSe1_, * paramsSe2_;
+	EbwtSearchParams* paramsSe1_, * paramsSe2_;
 
 	// Paired-end boundaries
 	const uint32_t minInsert_;
@@ -2070,7 +2031,7 @@ protected:
 	const bool fw1_, fw2_;
 
 	// State for getting alignments from ranges statefully
-	RangeChaser<String<Dna> >* rchase_;
+	RangeChaser* rchase_;
 
 	// Range-finding state for first mate
 	TDriver* driver_;

@@ -5,8 +5,11 @@
 #ifndef RANGE_H_
 #define RANGE_H_
 
-#include <vector>
 #include <stdint.h>
+
+#include "assert_helpers.h"
+#include "btypes.h"
+#include "ds.h"
 
 /**
  * A range along with the alignment it represents.
@@ -35,9 +38,10 @@ struct Range {
 	uint32_t numMms;  // # mismatches
 	bool fw;          // the forward orientation of read aligned?
 	bool mate1;       // read aligned is #1 mate/single?
-	std::vector<TIndexOffU> mms;   // list of positions with mismatches
-	std::vector<uint8_t>  refcs; // reference characters at mismatch positions
-	const Ebwt<seqan::String<seqan::Dna> > *ebwt;
+	EList<TIndexOffU> mms;   // list of positions with mismatches
+	EList<uint8_t>  refcs; // reference characters at mismatch positions
+	// const Ebwt<seqan::String<seqan::Dna> > *ebwt;
+        const Ebwt *ebwt;
 
 	bool repOk() const {
 		assert_eq(refcs.size(), mms.size());

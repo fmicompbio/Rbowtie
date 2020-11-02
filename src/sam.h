@@ -8,6 +8,8 @@
 #ifndef SAM_H_
 #define SAM_H_
 
+#include "ds.h"
+#include "hit.h"
 #include "pat.h"
 #include "random_source.h"
 #include "btypes.h"
@@ -38,7 +40,6 @@ public:
 	 */
 	SAMHitSink(
 		OutFileBuf& out,
-		int offBase,
 		bool fullRef,
 		bool noQnameTrunc,
 		const std::string& dumpAl,
@@ -46,7 +47,7 @@ public:
 		const std::string& dumpMax,
 		bool onePairFile,
 		bool sampleMax,
-		std::vector<std::string>* refnames,
+		EList<std::string>* refnames,
 		size_t nthreads,
 		int perThreadBufSize,
 		bool reorder) :
@@ -61,7 +62,6 @@ public:
 			nthreads,
 			perThreadBufSize,
 			reorder),
-		offBase_(offBase),
 		fullRef_(fullRef),
 		noQnameTrunc_(noQnameTrunc) { }
 
@@ -77,8 +77,7 @@ public:
 	void appendHeaders(
 		OutFileBuf& os,
 		size_t numRefs,
-		const vector<string>& refnames,
-		bool color,
+		const EList<string>& refnames,
 		bool nosq,
 		const TIndexOffU* plen,
 		bool fullRef,
@@ -93,7 +92,7 @@ protected:
 	 */
 	void reportUnOrMax(
 		PatternSourcePerThread& p,
-		vector<Hit>* hs, // could be NULL
+		EList<Hit>* hs, // could be NULL
 		size_t threadId,
 		bool un);
 
@@ -101,7 +100,7 @@ protected:
 	 * See sam.cpp
 	 */
 	virtual void reportMaxed(
-		vector<Hit>& hs,
+		EList<Hit>& hs,
 		size_t threadId,
 		PatternSourcePerThread& p);
 
@@ -116,9 +115,6 @@ protected:
 	}
 
 private:
-	int  offBase_;        /// Add this to reference offsets before outputting.
-	                      /// (An easy way to make things 1-based instead of
-	                      /// 0-based)
 	bool fullRef_;        /// print full reference name, not just up to whitespace
 	bool noQnameTrunc_;   /// true -> don't truncate QNAME at first whitespace
 };

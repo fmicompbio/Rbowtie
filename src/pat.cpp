@@ -1,16 +1,17 @@
 #include <cmath>
+#include <inttypes.h>
 #include <iostream>
 #include <string>
 #include <stdexcept>
-#include <seqan/sequence.h>
-#include <seqan/file.h>
 #include <string.h>
 
-#include "pat.h"
+#include "assert_helpers.h"
 #include "filebuf.h"
+#include "pat.h"
+#include "sstring.h"
+
 
 using namespace std;
-using namespace seqan;
 
 /**
  * Calculate a per-read random seed based on a combination of
@@ -18,16 +19,16 @@ using namespace seqan;
  * seed in '_randSeed'.
  */
 static uint32_t genRandSeed(
-	const String<Dna5>& qry,
-    const String<char>& qual,
-    const String<char>& name,
-    uint32_t seed)
+	const BTDnaString& qry,
+	const BTString& qual,
+	const BTString& name,
+	uint32_t seed)
 {
 	// Calculate a per-read random seed based on a combination of
 	// the read data (incl. sequence, name, quals) and the global
 	// seed
 	uint32_t rseed = (seed + 101) * 59 * 61 * 67 * 71 * 73 * 79 * 83;
-	size_t qlen = seqan::length(qry);
+	size_t qlen = qry.length();
 	// Throw all the characters of the read into the random seed
 	for(size_t i = 0; i < qlen; i++) {
 		int p = (int)qry[i];
@@ -45,7 +46,7 @@ static uint32_t genRandSeed(
 	}
 	// Throw all the characters in the read name into the random
 	// seed
-	size_t namelen = seqan::length(name);
+	size_t namelen = name.length();
 	for(size_t i = 0; i < namelen; i++) {
 		int p = (int)name[i];
 		assert_leq(p, 255);
@@ -78,7 +79,7 @@ void PatternSourcePerThread::finalizePair(Read& ra, Read& rb) {
 	ra.constructReverses();
 	ra.fixMateName(1);
 	ra.seed = genRandSeed(ra.patFw, ra.qual, ra.name, seed_);
-	
+
 	rb.mate = 2;
 	rb.constructRevComps();
 	rb.constructReverses();
@@ -111,7 +112,7 @@ pair<bool, bool> PatternSourcePerThread::nextReadPair() {
 		return make_pair(false, this_is_last ? last_batch_ : false);
 	}
 	// Parse read/pair
-	assert(strlen(buf_.read_a().readOrigBuf) != 0);
+	assert(!buf_.read_a().readOrigBuf.empty());
 	assert(buf_.read_a().empty());
 	if(!parse(buf_.read_a(), buf_.read_b())) {
 		return make_pair(false, false);
@@ -356,12 +357,10 @@ void CFilePatternSource::open() {
  * option.
  */
 VectorPatternSource::VectorPatternSource(
-	const vector<string>& seqs,
-	bool color,
+	const EList<string>& seqs,
 	int trim3,
 	int trim5) :
 	TrimmingPatternSource(trim3, trim5),
-	color_(color),
 	cur_(0),
 	paired_(false),
 	tokbuf_(),
@@ -409,12 +408,11 @@ pair<bool, int> VectorPatternSource::nextBatchImpl(
 	bool batch_a)
 {
 	pt.setReadId(cur_);
-	vector<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
+	EList<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
 	size_t readi = 0;
+
 	for(; readi < pt.max_buf_ && cur_ < bufs_.size(); readi++, cur_++) {
-		const size_t len = bufs_[cur_].length();
-		memcpy(readbuf[readi].readOrigBuf, bufs_[cur_].c_str(), len);
-		readbuf[readi].readOrigBufLen = len;
+		readbuf[readi].readOrigBuf.append(bufs_[cur_].c_str());
 	}
 	readCnt_ += readi;
 	return make_pair(cur_ == bufs_.size(), readi);
@@ -442,23 +440,22 @@ bool VectorPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 	// Light parser (nextBatchFromFile) puts unparsed data
 	// into Read& r, even when the read is paired.
 	assert(ra.empty());
-	assert_gt(ra.readOrigBufLen, 0); // raw data for read/pair is here
+	assert(!ra.readOrigBuf.empty()); // raw data for read/pair is here
 	int c = '\t';
 	size_t cur = 0;
-	const size_t buflen = ra.readOrigBufLen;
-	
+	const size_t buflen = ra.readOrigBuf.length();
+
 	// Loop over the two ends
 	for(int endi = 0; endi < 2 && c == '\t'; endi++) {
 		Read& r = ((endi == 0) ? ra : rb);
-		assert_eq(0, seqan::length(r.name));
+		assert(r.name.empty());
 		// Parse name if (a) this is the first end, or
 		// (b) this is tab6
-		size_t nameoff = 0;
 		if(endi < 1 || paired_) {
 			// Parse read name
 			c = ra.readOrigBuf[cur++];
 			while(c != '\t' && cur < buflen) {
-				r.nameBuf[nameoff++] = c;
+				r.name.append(c);
 				c = ra.readOrigBuf[cur++];
 			}
 			assert_eq('\t', c);
@@ -470,73 +467,34 @@ bool VectorPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 			// tab5, copy name from first end
 			rb.name = ra.name;
 		}
-		r.nameBuf[nameoff] = '\0';
-		_setBegin(r.name, r.nameBuf);
-		_setLength(r.name, nameoff);
 
 		// Parse sequence
-		assert_eq(0, seqan::length(r.patFw));
+		assert(r.patFw.empty());
 		c = ra.readOrigBuf[cur++];
-		int nchar = 0, seqoff = 0;
-		if(color_ && asc2dnacat[c] > 0) {
-			// First char is a DNA char (primer)
-			if(asc2colcat[toupper(r.readOrigBuf[cur++])] <= 0) {
-				// 2nd char isn't a color, so don't assume 'c' is primer
-				cur -= 2;
-			} else {
-				// 'c' is primer
-				r.primer = c;
+		int nchar = 0;
+		while(c != '\t' && cur < buflen) {
+			if(isalpha(c)) {
+				assert_in(toupper(c), "ACGTN");
+				if(nchar++ >= this->trim5_) {
+					assert_neq(0, asc2dnacat[c]);
+					r.patFw.append(asc2dna[c]); // ascii to int
+				}
 			}
-			c = r.readOrigBuf[cur++];
-		}
-		if(color_) {
-			while(c != '\t' && cur < buflen) {
-				if(c >= '0' && c < '4') {
-					c = "ACGTN"[(int)c - '0'];
-				}
-				if(c == '.') {
-					c = 'N';
-				}
-				if(isalpha(c)) {
-					assert_in(toupper(c), "ACGTN");
-					if(nchar++ >= this->trim5_) {
-						assert_neq(0, asc2dnacat[c]);
-						r.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
-					}
-				}
-				c = ra.readOrigBuf[cur++];
-			}
-			ra.color = true;
-		} else {
-			while(c != '\t' && cur < buflen) {
-				if(isalpha(c)) {
-					assert_in(toupper(c), "ACGTN");
-					if(nchar++ >= this->trim5_) {
-						assert_neq(0, asc2dnacat[c]);
-						r.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
-					}
-				}
-				c = ra.readOrigBuf[cur++];
-			}
+			c = ra.readOrigBuf[cur++];
 		}
 		assert_eq('\t', c);
 		if(cur >= buflen) {
 			return false; // record ended prematurely
 		}
-		r.patBufFw[seqoff] = '\0';
-		_setBegin(r.patFw, (Dna5*)r.patBufFw);
 		// record amt trimmed from 5' end due to --trim5
-		r.trimmed5 = (int)(nchar - seqoff);
+		r.trimmed5 = (int)(nchar - r.patFw.length());
 		// record amt trimmed from 3' end due to --trim3
-		int trim3 = (seqoff < this->trim3_) ? seqoff : this->trim3_;
-		_setLength(r.patFw, seqoff - trim3);
-		r.trimmed3 = trim3;
-		
+		r.trimmed3 = (int)(r.patFw.trimEnd(this->trim3_));
+
 		// Parse qualities
-		assert_eq(0, seqan::length(r.qual));
+		assert(r.qual.empty());
 		c = ra.readOrigBuf[cur++];
 		int nqual = 0;
-		size_t qualoff = 0;
 		while(c != '\t' && c != '\n' && c != '\r') {
 			if(c == ' ') {
 				wrongQualityFormat(r.name);
@@ -544,7 +502,7 @@ bool VectorPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 			}
 			char cadd = charToPhred33(c, false, false);
 			if(++nqual > this->trim5_) {
-				r.qualBuf[qualoff++] = cadd;
+				r.qual.append(cadd);
 			}
 			if(cur >= buflen) break;
 			c = ra.readOrigBuf[cur++];
@@ -556,13 +514,12 @@ bool VectorPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 			tooManyQualities(r.name);
 			return false;
 		}
-		r.qualBuf[seqoff] = '\0';
-		_setBegin(r.qual, r.qualBuf);
-		_setLength(r.qual, seqan::length(r.patFw));
+		r.qual.trimEnd(this->trim3_);
 		assert(c == '\t' || c == '\n' || c == '\r' || cur >= buflen);
+		assert_eq(r.patFw.length(), r.qual.length());
 	}
 	ra.parsed = true;
-	if(!rb.parsed && rb.readOrigBufLen > 0) {
+	if(!rb.parsed && rb.readOrigBuf.length() > 0) {
 		return parse(rb, ra, rdid);
 	}
 	return true;
@@ -577,7 +534,7 @@ pair<bool, int> FastaPatternSource::nextBatchFromFile(
 	size_t readi)
 {
 	int c;
-	vector<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
+	EList<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
 	if(first_) {
 		c = getc_wrapper();
 		if(c == EOF) {
@@ -595,20 +552,18 @@ pair<bool, int> FastaPatternSource::nextBatchFromFile(
 	bool done = false;
 	// Read until we run out of input or until we've filled the buffer
 	for(; readi < pt.max_buf_ && !done; readi++) {
-		readbuf[readi].readOrigBuf[0] = '>';
-		size_t bufoff = 1;
+		readbuf[readi].readOrigBuf.append('>');
 		while(true) {
 			c = getc_wrapper();
 			if(c < 0 || c == '>') {
 				done = c < 0;
 				break;
 			}
-			readbuf[readi].readOrigBuf[bufoff++] = c;
+			readbuf[readi].readOrigBuf.append(c);
 		}
-		readbuf[readi].readOrigBufLen = bufoff;
 	}
 	// Immediate EOF case
-	if(done && readbuf[readi-1].readOrigBufLen == 1) {
+	if(done && readbuf[readi-1].readOrigBuf.length() == 1) {
 		readi--;
 	}
 	return make_pair(done, readi);
@@ -621,15 +576,14 @@ bool FastaPatternSource::parse(Read& r, Read& rb, TReadId rdid) const {
 	// We assume the light parser has put the raw data for the separate ends
 	// into separate Read objects.  That doesn't have to be the case, but
 	// that's how we've chosen to do it for FastqPatternSource
-	assert_gt(r.readOrigBufLen, 0);
+	assert(!r.readOrigBuf.empty());
 	assert(r.empty());
 	int c = -1;
 	size_t cur = 1;
-	const size_t buflen = r.readOrigBufLen;
-	
+	const size_t buflen = r.readOrigBuf.length();
+
 	// Parse read name
-	assert_eq(0, seqan::length(r.name));
-	int nameoff = 0;
+	assert(r.name.empty());
 	while(cur < buflen) {
 		c = r.readOrigBuf[cur++];
 		if(c == '\n' || c == '\r') {
@@ -638,91 +592,47 @@ bool FastaPatternSource::parse(Read& r, Read& rb, TReadId rdid) const {
 			} while((c == '\n' || c == '\r') && cur < buflen);
 			break;
 		}
-		r.nameBuf[nameoff++] = c;
+		r.name.append(c);
 	}
 	if(cur >= buflen) {
 		return false; // FASTA ended prematurely
 	}
-	if(nameoff > 0) {
-		r.nameBuf[nameoff] = '\0';
-		_setBegin(r.name, r.nameBuf);
-		_setLength(r.name, nameoff);
-	}
-	
+
 	// Parse sequence
-	int nchar = 0, seqoff = 0;
-	assert_eq(0, seqan::length(r.patFw));
+	int nchar = 0;
+	assert(r.patFw.empty());
 	assert(c != '\n' && c != '\r');
 	assert_lt(cur, buflen);
-
-	if(color_ && asc2dnacat[c] > 0) {
-		// First char is a DNA char (primer)
-		if(asc2colcat[toupper(r.readOrigBuf[cur++])] <= 0) {
-			// 2nd char isn't a color, so don't assume 'c' is primer
-			cur -= 2;
-		} else {
-			// 'c' is primer
-			r.primer = c;
+	while(c != '\n' && cur < buflen) {
+		if(c == '.') {
+			c = 'N';
 		}
+		if(isalpha(c)) {
+			// If it's past the 5'-end trim point
+			if(nchar++ >= this->trim5_) {
+				r.patFw.append(asc2dna[c]);
+			}
+		}
+		assert_lt(cur, buflen);
 		c = r.readOrigBuf[cur++];
 	}
-	if(color_) {
-		while(c != '\n' && cur < buflen) {
-			if(c >= '0' && c < '4') {
-				c = "ACGTN"[(int)c - '0'];
-			}
-			if(c == '.') {
-				c = 'N';
-			}
-			if(isalpha(c)) {
-				assert_in(toupper(c), "ACGTN");
-				if(nchar++ >= this->trim5_) {
-					assert_neq(0, asc2dnacat[c]);
-					r.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
-				}
-			}
-			c = r.readOrigBuf[cur++];
-		}
-		r.color = true;
-	} else {
-		while(c != '\n' && cur < buflen) {
-			if(c == '.') {
-				c = 'N';
-			}
-			if(isalpha(c)) {
-				// If it's past the 5'-end trim point
-				if(nchar++ >= this->trim5_) {
-					r.patBufFw[seqoff++] = charToDna5[c];
-				}
-			}
-			assert_lt(cur, buflen);
-			c = r.readOrigBuf[cur++];
-		}
-	}
-	r.patBufFw[seqoff] = '\0';
-	_setBegin(r.patFw, (Dna5*)r.patBufFw);
 	// record amt trimmed from 5' end due to --trim5
-	r.trimmed5 = (int)(nchar - seqoff);
+	r.trimmed5 = (int)(nchar - r.patFw.length());
 	// record amt trimmed from 3' end due to --trim3
-	int trim3 = (seqoff < this->trim3_) ? seqoff : this->trim3_;
-	_setLength(r.patFw, seqoff - trim3);
-	r.trimmed3 = trim3;
-	
-	for(size_t i = 0; i < seqoff - trim3; i++) {
-		r.qualBuf[i] = 'I';
+	r.trimmed3 = (int)(r.patFw.trimEnd(this->trim3_));
+
+	for(size_t i = 0; i < r.patFw.length(); i++) {
+		r.qual.append('I');
 	}
-	r.qualBuf[seqoff - trim3] = '\0';
-	_setBegin(r.qual, r.qualBuf);
-	_setLength(r.qual, seqoff - trim3);
 
 	// Set up a default name if one hasn't been set
-	if(nameoff == 0) {
-		itoa10<TReadId>(static_cast<TReadId>(rdid), r.nameBuf);
-		_setBegin(r.name, r.nameBuf);
-		_setLength(r.name, strlen(r.nameBuf));
+	if(r.name.empty()) {
+		char cbuf[20];
+		itoa10<TReadId>(static_cast<TReadId>(rdid), cbuf);
+		r.name.install(cbuf);
 	}
 	r.parsed = true;
-	if(!rb.parsed && rb.readOrigBufLen > 0) {
+	if(!rb.parsed && rb.readOrigBuf.length() > 0) {
 		return parse(rb, r, rdid);
 	}
 	return true;
@@ -744,8 +654,7 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 	size_t readi)
 {
 	int c = -1;
-	vector<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
-	int nameoff = 0;
+	EList<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
 	while(readi < pt.max_buf_) {
 		c = getc_wrapper();
 		if(c < 0) {
@@ -753,7 +662,6 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 		}
 		if(c == '>') {
 			resetForNextFile();
-			nameoff = 0;
 			c = getc_wrapper();
 			bool sawSpace = false;
 			while(c != '\n' && c != '\r') {
@@ -764,8 +672,7 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 					// Put it in the name prefix buffer so we
 					// can re-use this prefix for all the reads
 					// that are substrings of this FASTA sequence
-					name_prefix_buf_[nameoff++] = c;
-					subReadCnt_ = 0;
+					name_prefix_buf_.push_back(c);
 				}
 				c = getc_wrapper();
 			}
@@ -775,7 +682,7 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 			if(c < 0) {
 				break;
 			}
-			name_prefix_buf_[nameoff++] = '_';
+			name_prefix_buf_.push_back('_');
 		}
 		int cat = asc2dnacat[c];
 		if(cat >= 2) c = 'N';
@@ -795,18 +702,15 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 				// the sampling gaps are by looking at the read
 				// name
 				if(!beginning_) {
-					subReadCnt_++;
+					cur_++;
 				}
 				continue;
 			}
 			// install name
-			nameoff = strlen(name_prefix_buf_);
-			memcpy(readbuf[readi].readOrigBuf, name_prefix_buf_, nameoff);
-			itoa10<TReadId>(subReadCnt_, name_int_buf_);
-			size_t bufoff = nameoff;
-			memcpy(readbuf[readi].readOrigBuf + bufoff, name_int_buf_, strlen(name_int_buf_));
-			bufoff += strlen(name_int_buf_);
-			readbuf[readi].readOrigBuf[bufoff++] = '\t';
+			readbuf[readi].readOrigBuf.append(name_prefix_buf_.c_str());
+			itoa10<TReadId>(cur_ - last_, name_int_buf_);
+			readbuf[readi].readOrigBuf.append(name_int_buf_);
+			readbuf[readi].readOrigBuf.append('\t');
 			// install sequence
 			for(size_t i = 0; i < length_; i++) {
 				if(length_ - i <= bufCur_) {
@@ -815,12 +719,11 @@ pair<bool, int> FastaContinuousPatternSource::nextBatchFromFile(
 					// Rotate
 					c = buf_[bufCur_ - (length_ - i) + 1024];
 				}
-				readbuf[readi].readOrigBuf[bufoff++] = c;
+				readbuf[readi].readOrigBuf.append(c);
 			}
-			readbuf[readi].readOrigBufLen = bufoff;
 			eat_ = freq_-1;
+			cur_++;
 			beginning_ = false;
-			subReadCnt_++;
 			readi++;
 		}
 	}
@@ -839,59 +742,47 @@ bool FastaContinuousPatternSource::parse(
 	// into Read& r, even when the read is paired.
 	assert(ra.empty());
 	assert(rb.empty());
-	assert_gt(ra.readOrigBufLen, 0); // raw data for read/pair is here
-	assert_eq(0, rb.readOrigBufLen);
+	assert(!ra.readOrigBuf.empty()); // raw data for read/pair is here
+	assert(rb.readOrigBuf.empty());
 	int c = '\t';
 	size_t cur = 0;
-	const size_t buflen = ra.readOrigBufLen;
-	
+	const size_t buflen = ra.readOrigBuf.length();
+
 	// Parse read name
-	assert_eq(0, seqan::length(ra.name));
-	int nameoff = 0;
 	c = ra.readOrigBuf[cur++];
 	while(c != '\t' && cur < buflen) {
-		ra.nameBuf[nameoff++] = c;
+		ra.name.append(c);
 		c = ra.readOrigBuf[cur++];
 	}
 	assert_eq('\t', c);
 	if(cur >= buflen) {
 		return false; // record ended prematurely
 	}
-	ra.nameBuf[nameoff] = '\0';
-	_setBegin(ra.name, ra.nameBuf);
-	_setLength(ra.name, nameoff);
 
 	// Parse sequence
-	assert_eq(0, seqan::length(ra.patFw));
-	int nchar = 0, seqoff = 0;
+	assert(ra.patFw.empty());
+	int nchar = 0;
 	while(cur < buflen) {
 		c = ra.readOrigBuf[cur++];
 		if(isalpha(c)) {
 			assert_in(toupper(c), "ACGTN");
 			if(nchar++ >= this->trim5_) {
 				assert_neq(0, asc2dnacat[c]);
-				ra.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
+				ra.patFw.append(asc2dna[c]); // ascii to int
 			}
 		}
 	}
-	ra.patBufFw[seqoff] = '\0';
-	_setBegin(ra.patFw, (Dna5*)ra.patBufFw);
 	// record amt trimmed from 5' end due to --trim5
-	ra.trimmed5 = (int)(nchar - seqoff);
+	ra.trimmed5 = (int)(nchar - ra.patFw.length());
 	// record amt trimmed from 3' end due to --trim3
-	int trim3 = (seqoff < this->trim3_) ? seqoff : this->trim3_;
-	_setLength(ra.patFw, seqoff - trim3);
-	ra.trimmed3 = trim3;
-	
+	ra.trimmed3 = (int)(ra.patFw.trimEnd(this->trim3_));
+
 	// Make fake qualities
-	assert_eq(0, seqan::length(ra.qual));
-	int qualoff = 0;
-	for(size_t i = 0; i < seqoff; i++) {
-		ra.qualBuf[qualoff++] = 'I';
+	assert(ra.qual.empty());
+	for(size_t i = 0; i < ra.patFw.length(); i++) {
+		ra.qual.append('I');
 	}
-	ra.qualBuf[qualoff] = '\0';
-	_setBegin(ra.qual, ra.qualBuf);
-	_setLength(ra.qual, qualoff);
+
 	ra.parsed = true;
 	return true;
 }
@@ -909,7 +800,7 @@ pair<bool, int> FastqPatternSource::nextBatchFromFile(
 	size_t readi)
 {
 	int c = 0;
-	vector<Read>* readBuf = batch_a ? &pt.bufa_ : &pt.bufb_;
+	EList<Read>* readBuf = batch_a ? &pt.bufa_ : &pt.bufb_;
 	if(first_) {
 		c = getc_wrapper();
 		while(c == '\r' || c == '\n') {
@@ -920,14 +811,13 @@ pair<bool, int> FastqPatternSource::nextBatchFromFile(
 			throw 1;
 		}
 		first_ = false;
-		(*readBuf)[readi].readOrigBuf[0] = c;
-		(*readBuf)[readi].readOrigBufLen = 1;
+		(*readBuf)[readi].readOrigBuf.append('@');
 	}
 	bool done = false, aborted = false;
 	// Read until we run out of input or until we've filled the buffer
 	while (readi < pt.max_buf_ && !done) {
-		char* buf = (*readBuf)[readi].readOrigBuf;
-		assert(readi == 0 || (*readBuf)[readi].readOrigBufLen == 0);
+		Read::TBuf& buf = (*readBuf)[readi].readOrigBuf;
+		assert(readi == 0 || (*readBuf)[readi].readOrigBuf.length() == 0);
 		int newlines = 4;
 		while(newlines) {
 			c = getc_wrapper();
@@ -945,7 +835,7 @@ pair<bool, int> FastqPatternSource::nextBatchFromFile(
 				}
 				break;
 			}
-			buf[(*readBuf)[readi].readOrigBufLen++] = c;
+			buf.append(c);
 		}
 		if (c > 0) {
 			if (interleaved_) {
@@ -973,15 +863,14 @@ bool FastqPatternSource::parse(Read &r, Read& rb, TReadId rdid) const {
 	// We assume the light parser has put the raw data for the separate ends
 	// into separate Read objects.  That doesn't have to be the case, but
 	// that's how we've chosen to do it for FastqPatternSource
-	assert_gt(r.readOrigBufLen, 0);
+	assert(!r.readOrigBuf.empty());
 	assert(r.empty());
 	int c;
 	size_t cur = 1;
-	const size_t buflen = r.readOrigBufLen;
+	const size_t buflen = r.readOrigBuf.length();
 
 	// Parse read name
-	assert_eq(0, seqan::length(r.name));
-	int nameoff = 0;
+	assert(r.name.empty());
 	while(true) {
 		assert_lt(cur, buflen);
 		c = r.readOrigBuf[cur++];
@@ -991,67 +880,29 @@ bool FastqPatternSource::parse(Read &r, Read& rb, TReadId rdid) const {
 			} while(c == '\n' || c == '\r');
 			break;
 		}
-		r.nameBuf[nameoff++] = c;
+		r.name.append(c);
 	}
-	r.nameBuf[nameoff] = '\0';
-	_setBegin(r.name, r.nameBuf);
-	_setLength(r.name, nameoff);
-	
+
 	// Parse sequence
-	int nchar = 0, seqoff = 0;
-	assert_eq(0, seqan::length(r.patFw));
-	if(color_ && asc2dnacat[c] > 0) {
-		// First char is a DNA char (primer)
-		if(asc2colcat[toupper(r.readOrigBuf[cur++])] <= 0) {
-			// 2nd char isn't a color, so don't assume 'c' is primer
-			cur -= 2;
-		} else {
-			// 'c' is primer
-			r.primer = c;
+	int nchar = 0;
+	assert(r.patFw.empty());
+	while(c != '+' && cur < buflen) {
+		if(c == '.') {
+			c = 'N';
 		}
+		if(isalpha(c)) {
+			// If it's past the 5'-end trim point
+			if(nchar++ >= this->trim5_) {
+				r.patFw.append(asc2dna[c]);
+			}
+		}
+		assert_lt(cur, buflen);
 		c = r.readOrigBuf[cur++];
 	}
-	if(color_) {
-		while(c != '+' && cur < buflen) {
-			if(c >= '0' && c < '4') {
-				c = "ACGTN"[(int)c - '0'];
-			}
-			if(c == '.') {
-				c = 'N';
-			}
-			if(isalpha(c)) {
-				assert_in(toupper(c), "ACGTN");
-				if(nchar++ >= this->trim5_) {
-					assert_neq(0, asc2dnacat[c]);
-					r.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
-				}
-			}
-			c = r.readOrigBuf[cur++];
-		}
-		r.color = true;
-	} else {
-		while(c != '+' && cur < buflen) {
-			if(c == '.') {
-				c = 'N';
-			}
-			if(isalpha(c)) {
-				// If it's past the 5'-end trim point
-				if(nchar++ >= this->trim5_) {
-					r.patBufFw[seqoff++] = charToDna5[c];
-				}
-			}
-			assert_lt(cur, buflen);
-			c = r.readOrigBuf[cur++];
-		}
-	}
-	_setBegin(r.patFw, (Dna5*)r.patBufFw);
 	// record amt trimmed from 5' end due to --trim5
-	r.trimmed5 = (int)(nchar - seqoff);
+	r.trimmed5 = (int)(nchar - r.patFw.length());
 	// record amt trimmed from 3' end due to --trim3
-	int trim3 = (seqoff < this->trim3_) ? seqoff : this->trim3_;
-	_setLength(r.patFw, seqoff - trim3);
-	r.patBufFw[seqan::length(r.patFw)] = '\0';
-	r.trimmed3 = trim3;
+	r.trimmed3 = (int)(r.patFw.trimEnd(this->trim3_));
 
 	assert_eq('+', c);
 	do {
@@ -1061,9 +912,9 @@ bool FastqPatternSource::parse(Read &r, Read& rb, TReadId rdid) const {
 	while(cur < buflen && (c == '\n' || c == '\r')) {
 		c = r.readOrigBuf[cur++];
 	}
-	
-	assert_eq(0, seqan::length(r.qual));
-	int nqual = 0, qualoff = 0;
+
+	assert(r.qual.empty());
+	int nqual = 0;
 	if (intQuals_) {
 		int cur_int = 0;
 		while(c != '\t' && c != '\n' && c != '\r') {
@@ -1077,14 +928,14 @@ bool FastqPatternSource::parse(Read &r, Read& rb, TReadId rdid) const {
 					c = r.readOrigBuf[cur++];
 				assert_geq(cadd, 33);
 				if(++nqual > this->trim5_) {
-					r.qualBuf[qualoff++] = cadd;
+					r.qual.append(cadd);
 				}
 			}
 		}
 	} else {
 		c = charToPhred33(c, solQuals_, phred64Quals_);
 		if(nqual++ >= r.trimmed5) {
-			r.qualBuf[qualoff++] = c;
+			r.qual.append(c);
 		}
 		while(cur < buflen) {
 			c = r.readOrigBuf[cur++];
@@ -1097,39 +948,27 @@ bool FastqPatternSource::parse(Read &r, Read& rb, TReadId rdid) const {
 			}
 			c = charToPhred33(c, solQuals_, phred64Quals_);
 			if(nqual++ >= r.trimmed5) {
-				r.qualBuf[qualoff++] = c;
+				r.qual.append(c);
 			}
 		}
-		if(qualoff < seqoff) {
+		r.qual.trimEnd(r.trimmed3);
+		if(r.qual.length() < r.patFw.length()) {
 			tooFewQualities(r.name);
 			return false;
-		} else if(qualoff > seqoff) {
-			// if qualoff is at most 2 characters longer than the sequence
-			// then the extra characters will most likely be the quality values
-			// of the primer and the first base (which get discarded by bowtie).
-			// In this case move the remainder of the sequence the (qualoff - seqoff)
-			// positions left.
-			if (r.color && qualoff - seqoff <= 2) {
-				memmove(r.qualBuf, r.qualBuf + (qualoff - seqoff), seqoff);
-			}
-			else {
-				tooManyQualities(r.name);
-				return false;
-			}
+		} else if(r.qual.length() > r.patFw.length()) {
+			tooManyQualities(r.name);
+			return false;
 		}
 	}
-	r.qualBuf[seqan::length(r.patFw)] = '\0';
-	_setBegin(r.qual, r.qualBuf);
-	_setLength(r.qual, seqan::length(r.patFw));
 
 	// Set up a default name if one hasn't been set
-	if(seqan::length(r.name) == 0) {
-		itoa10<TReadId>(static_cast<TReadId>(readCnt_), r.nameBuf);
-		_setBegin(r.name, r.nameBuf);
-		_setLength(r.name, nameoff);
+	if(r.name.empty()) {
+		char cbuf[20];
+		itoa10<TReadId>(static_cast<TReadId>(rdid), cbuf);
+		r.name.install(cbuf);
 	}
 	r.parsed = true;
-	if(!rb.parsed && rb.readOrigBufLen > 0) {
+	if(!rb.parsed && rb.readOrigBuf.length() > 0) {
 		return parse(rb, r, rdid);
 	}
 	return true;
@@ -1147,15 +986,25 @@ pair<bool, int> TabbedPatternSource::nextBatchFromFile(
 	while(c >= 0 && (c == '\n' || c == '\r')) {
 		c = getc_wrapper();
 	}
-	vector<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
+	EList<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
 	// Read until we run out of input or until we've filled the buffer
 	for(; readi < pt.max_buf_ && c >= 0; readi++) {
-		readbuf[readi].readOrigBufLen = 0;
+		readbuf[readi].readOrigBuf.clear();
 		while(c >= 0 && c != '\n' && c != '\r') {
-			readbuf[readi].readOrigBuf[readbuf[readi].readOrigBufLen++] = c;
+			readbuf[readi].readOrigBuf.append(c);
 			c = getc_wrapper();
 		}
-		while(c >= 0 && (c == '\n' || c == '\r') && readi < pt.max_buf_ - 1) {
+                if (c == '\n') {
+			readbuf[readi].readOrigBuf.append(c);
+			c = getc_wrapper();
+			if (c == '\r')
+				readbuf[readi].readOrigBuf.append(c);
+                        else {
+				ungetc_wrapper(c);
+				c = '\n'; // reset to last seen char
+                        }
+                }
+                while(c >= 0 && (c == '\n' || c == '\r') && readi < pt.max_buf_ - 1) {
 			c = getc_wrapper();
 		}
 	}
@@ -1170,104 +1019,65 @@ bool TabbedPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 	// into Read& r, even when the read is paired.
 	assert(ra.empty());
 	assert(rb.empty());
-	assert_gt(ra.readOrigBufLen, 0); // raw data for read/pair is here
-	assert_eq(0, rb.readOrigBufLen);
+	assert(!ra.readOrigBuf.empty()); // raw data for read/pair is here
+	assert(rb.readOrigBuf.empty());
 	int c = '\t';
 	size_t cur = 0;
-	const size_t buflen = ra.readOrigBufLen;
+	const size_t buflen = ra.readOrigBuf.length();
 	bool paired = false;
-	
+
 	// Loop over the two ends
 	for(int endi = 0; endi < 2 && c == '\t'; endi++) {
 		Read& r = ((endi == 0) ? ra : rb);
-		assert_eq(0, seqan::length(r.name));
+		assert(r.name.empty());
 		// Parse name if (a) this is the first end, or
 		// (b) this is tab6
-		int nameoff = 0;
 		if(endi < 1 || secondName_) {
 			// Parse read name
 			c = ra.readOrigBuf[cur++];
 			while(c != '\t' && cur < buflen) {
-				r.name[nameoff++] = c;
+				r.name.append(c);
 				c = ra.readOrigBuf[cur++];
 			}
 			assert_eq('\t', c);
 			if(cur >= buflen) {
 				return false; // record ended prematurely
 			}
-			r.nameBuf[nameoff] = '\0';
-			_setBegin(r.name, r.nameBuf);
-			_setLength(r.name, nameoff);
 		} else if(endi > 0) {
 			// if this is the second end and we're parsing
 			// tab5, copy name from first end
 			rb.name = ra.name; // not a deep copy
 		}
-		
+
 		paired = endi > 0;
 
 		// Parse sequence
-		assert_eq(0, seqan::length(r.patFw));
+		assert(r.patFw.empty());
 		c = ra.readOrigBuf[cur++];
-		int nchar = 0, seqoff = 0;
-		if(color_ && asc2dnacat[c] > 0) {
-			// First char is a DNA char (primer)
-			if(asc2colcat[toupper(r.readOrigBuf[cur++])] <= 0) {
-				// 2nd char isn't a color, so don't assume 'c' is primer
-				cur -= 2;
-			} else {
-				// 'c' is primer
-				r.primer = c;
+		int nchar = 0;
+		while(c != '\t' && cur < buflen) {
+			if(isalpha(c)) {
+				assert_in(toupper(c), "ACGTN");
+				if(nchar++ >= this->trim5_) {
+					assert_neq(0, asc2dnacat[c]);
+					r.patFw.append(asc2dna[c]);
+				}
 			}
-			c = r.readOrigBuf[cur++];
-		}
-		if(color_) {
-			while(c != '\t' && cur < buflen) {
-				if(c >= '0' && c < '4') {
-					c = "ACGTN"[(int)c - '0'];
-				}
-				if(c == '.') {
-					c = 'N';
-				}
-				if(isalpha(c)) {
-					assert_in(toupper(c), "ACGTN");
-					if(nchar++ >= this->trim5_) {
-						assert_neq(0, asc2dnacat[c]);
-						r.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
-					}
-				}
-				c = r.readOrigBuf[cur++];
-			}
-			r.color = true;
-		} else {
-			while(c != '\t' && cur < buflen) {
-				if(isalpha(c)) {
-					assert_in(toupper(c), "ACGTN");
-					if(nchar++ >= this->trim5_) {
-						assert_neq(0, asc2dnacat[c]);
-						r.patBufFw[seqoff++] = charToDna5[c];
-					}
-				}
-				c = ra.readOrigBuf[cur++];
-			}
+			c = ra.readOrigBuf[cur++];
 		}
 		assert_eq('\t', c);
 		if(cur >= buflen) {
 			return false; // record ended prematurely
 		}
-		_setBegin(r.patFw, (Dna5*)r.patBufFw);
 		// record amt trimmed from 5' end due to --trim5
-		r.trimmed5 = (int)(nchar - seqoff);
+		r.trimmed5 = (int)(nchar - r.patFw.length());
 		// record amt trimmed from 3' end due to --trim3
-		int trim3 = (seqoff < this->trim3_) ? seqoff : this->trim3_;
-		_setLength(r.patFw, seqoff - trim3);
-		r.patBufFw[seqan::length(r.patFw)] = '\0';
-		r.trimmed3 = trim3;
-		
+		r.trimmed3 = (int)(r.patFw.trimEnd(this->trim3_));
+
 		// Parse qualities
-		assert_eq(0, seqan::length(r.qual));
+		assert(r.qual.empty());
 		c = ra.readOrigBuf[cur++];
-		int nqual = 0, qualoff = 0;
+		int nqual = 0;
 		if (intQuals_) {
 			int cur_int = 0;
 			while(c != '\t' && c != '\n' && c != '\r' && cur < buflen) {
@@ -1279,7 +1089,7 @@ bool TabbedPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 					cur_int = 0;
 					assert_geq(cadd, 33);
 					if(++nqual > this->trim5_) {
-						r.qualBuf[qualoff++] = cadd;
+						r.qual.append(cadd);
 					}
 				}
 			}
@@ -1291,7 +1101,7 @@ bool TabbedPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 				}
 				char cadd = charToPhred33(c, solQuals_, phred64Quals_);
 				if(++nqual > this->trim5_) {
-					r.qualBuf[qualoff++] = cadd;
+					r.qual.append(cadd);
 				}
 				if(cur >= buflen) break;
 				c = ra.readOrigBuf[cur++];
@@ -1304,10 +1114,9 @@ bool TabbedPatternSource::parse(Read& ra, Read& rb, TReadId rdid) const {
 			tooManyQualities(r.name);
 			return false;
 		}
-		r.qualBuf[seqan::length(r.patFw)] = '\0';
-		_setBegin(r.qual, r.qualBuf);
-		_setLength(r.qual, seqan::length(r.patFw));
+		r.qual.trimEnd(this->trim3_);
 		assert(c == '\t' || c == '\n' || c == '\r' || cur >= buflen);
+		assert_eq(r.patFw.length(), r.qual.length());
 	}
 	ra.parsed = true;
 	rb.parsed = paired;
@@ -1326,22 +1135,30 @@ pair<bool, int> RawPatternSource::nextBatchFromFile(
 	while(c >= 0 && (c == '\n' || c == '\r')) {
 		c = getc_wrapper();
 	}
-	vector<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
+	EList<Read>& readbuf = batch_a ? pt.bufa_ : pt.bufb_;
 	// Read until we run out of input or until we've filled the buffer
 	for(; readi < pt.max_buf_ && c >= 0; readi++) {
-		readbuf[readi].readOrigBufLen = 0;
+		readbuf[readi].readOrigBuf.clear();
 		while(c >= 0 && (c == '\n' || c == '\r')) {
 			c = getc_wrapper();
 		}
 		while(c >= 0 && (c != '\n' && c != '\r')) {
-			readbuf[readi].readOrigBuf[readbuf[readi].readOrigBufLen++] = c;
+			readbuf[readi].readOrigBuf.append(c);
 			c = getc_wrapper();
 		}
-	}
-	while (readi > 0 && readbuf[readi-1].readOrigBufLen == 0) {
+                if (c == '\n') {
+			readbuf[readi].readOrigBuf.append(c);
+			c = getc_wrapper();
+			if (c == '\r')
+				readbuf[readi].readOrigBuf.append(c);
+			else {
+				ungetc_wrapper(c);
+				c = '\n'; // reset to last character seen
+			}
+                }
+        }
+	while (readi > 0 && readbuf[readi-1].readOrigBuf.length() == 0)
 		readi--;
-	}
-
 	return make_pair(c < 0, readi);
 }
 
@@ -1350,109 +1167,71 @@ pair<bool, int> RawPatternSource::nextBatchFromFile(
  */
 bool RawPatternSource::parse(Read& r, Read& rb, TReadId rdid) const {
 	assert(r.empty());
-	assert_gt(r.readOrigBufLen, 0);
+	assert(!r.readOrigBuf.empty());
 	size_t cur = 0;
-	const size_t buflen = r.readOrigBufLen;
+	const size_t buflen = r.readOrigBuf.length();
 
 	// Parse sequence
-	assert_eq(0, seqan::length(r.patFw));
-	int nchar = 0, seqoff = 0;
+	assert(r.patFw.empty());
+	int nchar = 0;
 	int c = r.readOrigBuf[cur++];
 
-	if(color_ && asc2dnacat[c] > 0) {
-		// First char is a DNA char (primer)
-		if(asc2colcat[toupper(r.readOrigBuf[cur++])] <= 0) {
-			// 2nd char isn't a color, so don't assume 'c' is primer
-			cur -= 2;
-		} else {
-			// 'c' is primer
-			r.primer = c;
-		}
+
+	cur--;
+	while(cur < buflen) {
 		c = r.readOrigBuf[cur++];
-	}
-	if(color_) {
-		while(c != '\0') {
-			assert(c != '\r' && c != '\n');
-			if(c >= '0' && c < '4') {
-				c = "ACGTN"[(int)c - '0'];
-			}
-			if(c == '.') {
-				c = 'N';
-			}
-			if(isalpha(c)) {
-				assert_in(toupper(c), "ACGTN");
-				if(nchar++ >= this->trim5_) {
-					assert_neq(0, asc2dnacat[c]);
-					r.patBufFw[seqoff++] = charToDna5[c]; // ascii to int
-				}
-			}
-			c = r.readOrigBuf[cur++];
-		}
-		r.color = true;
-	} else {
-		cur--;
-		while(cur < buflen) {
-			c = r.readOrigBuf[cur++];
-			assert(c != '\r' && c != '\n');
-			if(isalpha(c)) {
-				assert_in(toupper(c), "ACGTN");
-				if(nchar++ >= this->trim5_) {
-					assert_neq(0, asc2dnacat[c]);
-					r.patBufFw[seqoff++] = charToDna5[c];
-				}
+		if(isalpha(c)) {
+			assert_in(toupper(c), "ACGTN");
+			if(nchar++ >= this->trim5_) {
+				assert_neq(0, asc2dnacat[c]);
+				r.patFw.append(asc2dna[c]);
 			}
 		}
 	}
-	_setBegin(r.patFw, (Dna5*)r.patBufFw);
+	assert_eq(cur, buflen);
 	// record amt trimmed from 5' end due to --trim5
-	r.trimmed5 = (int)(nchar - seqoff);
+	r.trimmed5 = (int)(nchar - r.patFw.length());
 	// record amt trimmed from 3' end due to --trim3
-	int trim3 = (seqoff < this->trim3_) ? seqoff : this->trim3_;
-	_setLength(r.patFw, seqoff - trim3);
-	r.patBufFw[seqan::length(r.patFw)] = '\0';
-	r.trimmed3 = trim3;
-	
+	r.trimmed3 = (int)(r.patFw.trimEnd(this->trim3_));
+
 	// Give the name field a dummy value
-	itoa10<TReadId>(rdid, r.nameBuf);
-	_setBegin(r.name, r.nameBuf);
-	_setLength(r.name, strlen(r.nameBuf));
-	
+	char cbuf[20];
+	itoa10<TReadId>(rdid, cbuf);
+	r.name.install(cbuf);
+
 	// Give the base qualities dummy values
-	assert_eq(0, seqan::length(r.qual));
-	const size_t len = seqan::length(r.patFw);
+	assert(r.qual.empty());
+	const size_t len = r.patFw.length();
 	for(size_t i = 0; i < len; i++) {
-		r.qualBuf[i] = 'I';
+		r.qual.append('I');
 	}
-	_setBegin(r.qual, r.qualBuf);
-	_setLength(r.qual, seqan::length(r.patFw));
-	
 	r.parsed = true;
-	if(!rb.parsed && rb.readOrigBufLen > 0) {
+	if(!rb.parsed && !rb.readOrigBuf.empty()) {
 		return parse(rb, r, rdid);
 	}
 	return true;
 }
 
-void wrongQualityFormat(const String<char>& read_name) {
+void wrongQualityFormat(const BTString& read_name) {
 	cerr << "Encountered a space parsing the quality string for read " << read_name << endl
 	     << "If this is a FASTQ file with integer (non-ASCII-encoded) qualities, please" << endl
 	     << "re-run Bowtie with the --integer-quals option." << endl;
 	throw 1;
 }
 
-void tooFewQualities(const String<char>& read_name) {
+void tooFewQualities(const BTString& read_name) {
 	cerr << "Too few quality values for read: " << read_name << endl
 		 << "\tare you sure this is a FASTQ-int file?" << endl;
 	throw 1;
 }
 
-void tooManyQualities(const String<char>& read_name) {
+void tooManyQualities(const BTString& read_name) {
 	cerr << "Reads file contained a pattern with more than 1024 quality values." << endl
 		 << "Please truncate reads and quality values and and re-run Bowtie" << endl;
 	throw 1;
 }
 
-void tooManySeqChars(const String<char>& read_name) {
+void tooManySeqChars(const BTString& read_name) {
 	cerr << "Reads file contained a pattern with more than 1024 sequence characters." << endl
 		 << "Please truncate reads and quality values and and re-run Bowtie." << endl
 		 << "Offending read: " << read_name << endl;

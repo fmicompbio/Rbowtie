@@ -1,22 +1,22 @@
 #ifndef REF_READ_H_
 #define REF_READ_H_
 
-#include <iostream>
 #include <cassert>
-#include <vector>
-#include <string>
 #include <ctype.h>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
-#include <seqan/sequence.h>
+#include <string>
+
 #include "alphabet.h"
 #include "assert_helpers.h"
+#include "ds.h"
+#include "endian_swap.h"
 #include "filebuf.h"
 #include "word_io.h"
-#include "endian_swap.h"
+#include "ds.h"
 
 using namespace std;
-using namespace seqan;
 
 class RefTooLongException : public exception {
 
@@ -96,10 +96,8 @@ enum {
  * Parameters governing treatment of references as they're read in.
  */
 struct RefReadInParams {
-	RefReadInParams(bool col, int r, bool nsToA, bool bisulf) :
-		color(col), reverse(r), nsToAs(nsToA), bisulfite(bisulf) { }
-	// extract colors from reference
-	bool color;
+	RefReadInParams(int r, bool nsToA, bool bisulf) :
+		reverse(r), nsToAs(nsToA), bisulfite(bisulf) { }
 	// reverse each reference sequence before passing it along
 	int reverse;
 	// convert ambiguous characters to As
@@ -117,17 +115,17 @@ fastaRefReadSize(
 
 extern std::pair<size_t, size_t>
 fastaRefReadSizes(
-	vector<FileBuf*>& in,
-	vector<RefRecord>& recs,
-	vector<uint32_t>& plens,
+	EList<FileBuf*>& in,
+	EList<RefRecord>& recs,
+	EList<uint32_t>& plens,
 	const RefReadInParams& rparms,
 	BitpairOutFileBuf* bpout,
 	TIndexOff& numSeqs);
 
 extern void
 reverseRefRecords(
-	const vector<RefRecord>& src,
-	vector<RefRecord>& dst,
+	const EList<RefRecord>& src,
+	EList<RefRecord>& dst,
 	bool recursive = false,
 	bool verbose = false);
 
@@ -139,10 +137,10 @@ template <typename TStr>
 static RefRecord fastaRefReadAppend(FileBuf& in,
                                     bool first,
                                     TStr& dst,
+				    TIndexOffU& dstoff,
                                     RefReadInParams& rparms,
                                     string* name = NULL)
 {
-	typedef typename Value<TStr>::Type TVal;
 	int c;
 	static int lastc = '>';
 	if(first) {
@@ -160,11 +158,10 @@ static RefRecord fastaRefReadAppend(FileBuf& in,
 	size_t off = 0;
 	first = true;
 
-	size_t ilen = length(dst);
+	size_t ilen = dstoff;
 
 	// Chew up the id line; if the next line is either
 	// another id line or a comment line, keep chewing
-	int lc = -1; // last-DNA char variable for color conversion
 	c = lastc;
 	if(c == '>' || c == '#') {
 		do {
@@ -201,8 +198,6 @@ static RefRecord fastaRefReadAppend(FileBuf& in,
 	}
 
 	// Skip over an initial stretch of gaps or ambiguous characters.
-	// For colorspace we skip until we see two consecutive unambiguous
-	// characters (i.e. the first unambiguous color).
 	while(true) {
 		int cat = dna4Cat[c];
 		if(rparms.nsToAs && cat == 2) {
@@ -211,26 +206,8 @@ static RefRecord fastaRefReadAppend(FileBuf& in,
 		int cc = toupper(c);
 		if(rparms.bisulfite && cc == 'C') c = cc = 'T';
 		if(cat == 1) {
-			// This is a DNA character
-			if(rparms.color) {
-				if(lc != -1) {
-					// Got two consecutive unambiguous DNAs
-					break; // to read-in loop
-				}
-				// Keep going; we need two consecutive unambiguous DNAs
-				lc = charToDna5[(int)c];
-				// The 'if(off > 0)' takes care of the case where
-				// the reference is entirely unambiguous and we don't
-				// want to incorrectly increment off.
-				if(off > 0) off++;
-			} else {
-				break; // to read-in loop
-			}
+			break; // to read-in loop
 		} else if(cat == 2) {
-			if(lc != -1 && off == 0) {
-				off++;
-			}
-			lc = -1;
 			off++; // skip it
 		} else if(c == '>') {
 			lastc = '>';
@@ -242,13 +219,6 @@ static RefRecord fastaRefReadAppend(FileBuf& in,
 			goto bail;
 		}
 	}
-	if(first && rparms.color && off > 0) {
-		// Handle the case where the first record has ambiguous
-		// characters but we're in color space; one of those counts is
-		// spurious
-		off--;
-	}
-	assert(!rparms.color || lc != -1);
 	assert_eq(1, dna4Cat[c]);
 
 	// in now points just past the first character of a sequence
@@ -256,19 +226,14 @@ static RefRecord fastaRefReadAppend(FileBuf& in,
 	while(true) {
 		// Note: can't have a comment in the middle of a sequence,
 		// though a comment can end a sequence
-		int cat = dna4Cat[c];
+		int cat = asc2dnacat[c];
 		assert_neq(2, cat);
 		if(cat == 1) {
 			// Consume it
-			if(!rparms.color || lc != -1) len++;
+			len++;
 			// Add it to referenece buffer
-			if(rparms.color) {
-				appendValue(dst, (Dna)dinuc2color[charToDna5[(int)c]][lc]);
-			} else if(!rparms.color) {
-				appendValue(dst, (Dna)(char)c);
-			}
-			assert_lt((uint8_t)(Dna)dst[length(dst)-1], 4);
-			lc = charToDna5[(int)c];
+			dst.set(asc2dna[c], dstoff++);
+			assert_lt((int)dst[dstoff-1], 4);
 		}
 		c = in.get();
 		if(rparms.nsToAs && dna4Cat[c] == 2) c = 'A';
@@ -284,19 +249,7 @@ static RefRecord fastaRefReadAppend(FileBuf& in,
 	// ilen = length of buffer before this last sequence was appended.
 	if(rparms.reverse == REF_READ_REVERSE_EACH) {
 		// Find limits of the portion we just appended
-		size_t nlen = length(dst);
-		assert_eq(nlen - ilen, len);
-		if(len > 0) {
-			size_t halfway =  ilen + (len>>1);
-			// Reverse it in-place
-			for(size_t i = ilen; i < halfway; i++) {
-				size_t diff = i-ilen;
-				size_t j = nlen-diff-1;
-				TVal tmp = dst[i];
-				dst[i] = dst[j];
-				dst[j] = tmp;
-			}
-		}
+		dst.reverseWindow(ilen, len);
 	}
 	return RefRecord((TIndexOffU)off, (TIndexOffU)len, first);
 }

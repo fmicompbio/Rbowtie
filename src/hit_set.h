@@ -8,14 +8,16 @@
 #ifndef HIT_SET_H_
 #define HIT_SET_H_
 
-#include <seqan/sequence.h>
-#include <vector>
 #include <algorithm>
-#include "assert_helpers.h"
-#include "filebuf.h"
-#include "edit.h"
+#include <limits.h>
+
 #include "alphabet.h"
+#include "assert_helpers.h"
 #include "btypes.h"
+#include "ds.h"
+#include "edit.h"
+#include "filebuf.h"
+#include "sstring.h"
 
 /**
  * Encapsulates a hit contained within a HitSet that can be
@@ -42,15 +44,9 @@ struct HitSetEnt {
 		fb.writeChars((const char*)&oms, 4);
 		uint32_t sz = (uint32_t)edits.size();
 		fb.writeChars((const char*)&sz, 4);
-		std::vector<Edit>::const_iterator it;
-		for(it = edits.begin(); it != edits.end(); it++) {
-			it->serialize(fb);
-		}
-		sz = (uint32_t)cedits.size();
+                for (size_t i = 0; i < edits.size(); i++)
+                        edits[i].serialize(fb);
 		fb.writeChars((const char*)&sz, 4);
-		for(it = cedits.begin(); it != cedits.end(); it++) {
-			it->serialize(fb);
-		}
 	}
 
 	/**
@@ -76,10 +72,6 @@ struct HitSetEnt {
 		}
 		fb.get((char*)&sz, 4);
 		assert_lt(sz, 1024);
-		cedits.resize(sz);
-		for(uint32_t i = 0; i < sz; i++) {
-			cedits[i].deserialize(fb);
-		}
 	}
 
 	/**
@@ -151,20 +143,6 @@ struct HitSetEnt {
 	}
 
 	/**
-	 * Get the ith color edit.
-	 */
-	Edit& colorEditAt(unsigned i) {
-		return cedits[i];
-	}
-
-	/**
-	 * Another way to get at an edit.
-	 */
-	const Edit& colorEditAt(unsigned i) const {
-		return cedits[i];
-	}
-
-	/**
 	 * Return the front entry.
 	 */
 	Edit& front() {
@@ -189,7 +167,7 @@ struct HitSetEnt {
 	 * Sort edits by position
 	 */
 	void sort() {
-		if(edits.size() > 1) std::sort(edits.begin(), edits.end());
+		if(edits.size() > 1) edits.sort();
 	}
 
 	/**
@@ -213,8 +191,7 @@ struct HitSetEnt {
 	int8_t stratum; // stratum
 	uint16_t cost; // cost, including stratum
 	uint32_t oms; // # others
-	std::vector<Edit> edits; // edits to get from reference to subject
-	std::vector<Edit> cedits; // color edits to get from reference to subject
+	EList<Edit> edits; // edits to get from reference to subject
 };
 
 /**
@@ -223,8 +200,7 @@ struct HitSetEnt {
  */
 struct HitSet {
 
-	typedef std::vector<HitSetEnt> EntVec;
-	typedef EntVec::const_iterator Iter;
+	typedef EList<HitSetEnt> EntVec;
 	typedef std::pair<TIndexOffU,TIndexOffU> UPair;
 
 	HitSet() {
@@ -239,25 +215,23 @@ struct HitSet {
 	 * Write binary representation of HitSet to an OutFileBuf.
 	 */
 	void serialize(OutFileBuf& fb) const {
-		fb.write(color ? 1 : 0);
-		uint32_t i = (uint32_t)seqan::length(name);
+		fb.write(0);
+		uint32_t i = (uint32_t)name.length();
 		assert_gt(i, 0);
 		fb.writeChars((const char*)&i, 4);
-		fb.writeChars(seqan::begin(name), i);
-		i = (uint32_t)seqan::length(seq);
+		fb.writeChars(name.buf(), i);
+		i = (uint32_t)seq.length();
 		assert_gt(i, 0);
 		assert_lt(i, 1024);
 		fb.writeChars((const char*)&i, 4);
 		for(size_t j = 0; j < i; j++) {
 			fb.write("ACGTN"[(int)seq[j]]);
 		}
-		fb.writeChars(seqan::begin(qual), i);
+		fb.writeChars(qual.buf(), i);
 		i = (uint32_t)ents.size();
 		fb.writeChars((const char*)&i, 4);
-		std::vector<HitSetEnt>::const_iterator it;
-		for(it = ents.begin(); it != ents.end(); it++) {
-			it->serialize(fb);
-		}
+                for (size_t i = 0; i < ents.size(); i++)
+                        ents[i].serialize(fb);
 		fb.write(maxedStratum);
 	}
 
@@ -265,26 +239,25 @@ struct HitSet {
 	 * Repopulate a HitSet from its binary representation in FileBuf.
 	 */
 	void deserialize(FileBuf& fb) {
-		color = (fb.get() != 0 ? true : false);
 		uint32_t sz = 0;
 		if(fb.get((char*)&sz, 4) != 4) {
-			seqan::clear(name);
-			seqan::clear(seq);
+			name.clear();
+			seq.clear();
 			return;
 		}
 		assert_gt(sz, 0);
 		assert_lt(sz, 1024);
-		seqan::resize(name, sz);
-		fb.get(seqan::begin(name), sz);
+		name.resize(sz);
+		fb.get(name.wbuf(), sz);
 		fb.get((char*)&sz, 4);
 		assert_gt(sz, 0);
 		assert_lt(sz, 1024);
-		seqan::resize(seq, sz);
+		seq.resize(sz);
 		for(size_t j = 0; j < sz; j++) {
-			seq[j] = charToDna5[fb.get()];
+			seq[j] = asc2dna[fb.get()];
 		}
-		seqan::resize(qual, sz);
-		fb.get(seqan::begin(qual), sz);
+                qual.resize(sz);
+		fb.get(qual.wbuf(), sz);
 		fb.get((char*)&sz, 4);
 		if(sz > 0) {
 			ents.resize(sz);
@@ -302,7 +275,7 @@ struct HitSet {
 	 * necessarily any alignments).
 	 */
 	bool initialized() const {
-		return !seqan::empty(seq);
+		return !seq.empty();
 	}
 
 	/**
@@ -325,14 +298,6 @@ struct HitSet {
 	void clear() {
 		maxedStratum = -1;
 		ents.clear();
-	}
-
-	Iter begin() const {
-		return ents.begin();
-	}
-
-	Iter end() const {
-		return ents.end();
 	}
 
 	/**
@@ -368,7 +333,7 @@ struct HitSet {
 	 * Sort hits by stratum/penalty.
 	 */
 	void sort() {
-		if(ents.size() > 1) std::sort(ents.begin(), ents.end());
+		if(ents.size() > 1) ents.sort();
 	}
 
 	/**
@@ -387,7 +352,7 @@ struct HitSet {
 	 * up by one.
 	 */
 	void remove(size_t i) {
-		ents.erase(ents.begin() + i);
+                ents.erase(i);
 	}
 
 	/**
@@ -419,11 +384,10 @@ struct HitSet {
 	 * Clear out all the strings and all the entries.
 	 */
 	void clearAll() {
-		seqan::clear(name);
-		seqan::clear(seq);
-		seqan::clear(qual);
+		name.clear();
+		seq.clear();
+		qual.clear();
 		ents.clear();
-		color = false;
 	}
 
 	/**
@@ -463,12 +427,11 @@ struct HitSet {
 	 */
 	friend std::ostream& operator << (std::ostream& os, const HitSet& hs);
 
-	seqan::String<char> name;
-	seqan::String<seqan::Dna5> seq;
-	seqan::String<char> qual;
+	BTString name;
+	BTDnaString seq;
+	BTString qual;
 	int8_t maxedStratum;
-	std::vector<HitSetEnt> ents;
-	bool color; // whether read was orginally in colorspace
+	EList<HitSetEnt> ents;
 };
 
 #endif /* HIT_SET_H_ */

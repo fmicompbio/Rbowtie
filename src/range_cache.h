@@ -7,11 +7,13 @@
 #ifndef RANGE_CACHE_H_
 #define RANGE_CACHE_H_
 
+#include <iostream>
+#include <map>
+#include <stdexcept>
 #include <stdint.h>
 #include <utility>
-#include <iostream>
-#include <stdexcept>
-#include <map>
+
+#include "ds.h"
 #include "ebwt.h"
 #include "row_chaser.h"
 
@@ -122,10 +124,6 @@ private:
  * A view to a range of cached reference positions.
  */
 class RangeCacheEntry {
-
-	typedef Ebwt<String<Dna> > TEbwt;
-	typedef RowChaser<String<Dna> > TRowChaser;
-
 public:
 	/**
 	 *
@@ -139,7 +137,7 @@ public:
 	 * Create a new RangeCacheEntry from the data in the pool at 'ents'.
 	 */
 	RangeCacheEntry(RangeCacheMemPool& pool, TIndexOffU top,
-			TIndexOffU ent, TEbwt* ebwt, bool sanity = false) :
+			TIndexOffU ent, Ebwt* ebwt, bool sanity = false) :
 	    sanity_(sanity)
 	{
 		init(pool, top, ent, ebwt);
@@ -148,7 +146,7 @@ public:
 	/**
 	 * Initialize a RangeCacheEntry from the data in the pool at 'ents'.
 	 */
-	void init(RangeCacheMemPool& pool, TIndexOffU top, TIndexOffU ent, TEbwt* ebwt) {
+	void init(RangeCacheMemPool& pool, TIndexOffU top, TIndexOffU ent, Ebwt* ebwt) {
 		assert(ebwt != NULL);
 		top_ = top;
 		ebwt_ = ebwt;
@@ -181,7 +179,8 @@ public:
 			// Get the pointer to the entries themselves
 			ents_ = ents + 1;
 		}
-		assert(sanityCheckEnts());
+		if (sanity_)
+			assert(sanityCheckEnts());
 	}
 
 	/**
@@ -189,7 +188,7 @@ public:
 	 * entry index.
 	 */
 	void init(RangeCacheMemPool& pool, TIndexOffU top, TIndexOffU jumps,
-			TIndexOffU ent, TEbwt* ebwt)
+			TIndexOffU ent, Ebwt* ebwt)
 	{
 		assert(ebwt != NULL);
 		ebwt_ = ebwt;
@@ -205,7 +204,8 @@ public:
 		// Get the pointer to the entries themselves
 		ents_ = ents + 1;
 		assert_leq(top_ + len_, ebwt_->_eh._len);
-		assert(sanityCheckEnts());
+		if (sanity_)
+			assert(sanityCheckEnts());
 	}
 
 	TIndexOffU len() const   {
@@ -234,7 +234,7 @@ public:
 		return ents_ != NULL;
 	}
 
-	TEbwt *ebwt() {
+	Ebwt *ebwt() {
 		return ebwt_;
 	}
 
@@ -256,7 +256,7 @@ public:
 		if(elt < len_) {
 			val -= jumps_;
 			if(verbose_) cout << "Installed reference offset: " << (top_ + elt) << endl;
-			ASSERT_ONLY(TIndexOffU sanity = TRowChaser::toFlatRefOff(ebwt_, 1, top_ + elt));
+			ASSERT_ONLY(TIndexOffU sanity = RowChaser::toFlatRefOff(ebwt_, 1, top_ + elt));
 			assert_eq(sanity, val);
 #ifndef NDEBUG
 			for(size_t i = 0; i < len_; i++) {
@@ -285,7 +285,7 @@ public:
 		if(elt < len_ && ents_[elt] != RANGE_NOT_SET) {
 			if(verbose_) cout << "Retrieved result from cache: " << (top_ + elt) << endl;
 			TIndexOffU ret = ents_[elt] + jumps_;
-			ASSERT_ONLY(TIndexOffU sanity = TRowChaser::toFlatRefOff(ebwt_, 1, top_ + elt));
+			ASSERT_ONLY(TIndexOffU sanity = RowChaser::toFlatRefOff(ebwt_, 1, top_ + elt));
 			assert_eq(sanity, ret);
 			return ret;
 		} else {
@@ -297,7 +297,7 @@ public:
 	/**
 	 * Check that len_ and the ents_ array both make sense.
 	 */
-	static bool sanityCheckEnts(TIndexOffU len, TIndexOffU *ents, TEbwt* ebwt) {
+	static bool sanityCheckEnts(TIndexOffU len, TIndexOffU *ents, Ebwt* ebwt) {
 		assert_gt(len, 0);
 		assert_leq(len, ebwt->_eh._len);
 		if(len < 10) {
@@ -333,7 +333,7 @@ private:
 	TIndexOffU jumps_; /// how many tunnel-jumps it is away from the requester
 	TIndexOffU len_;   /// # of entries in cache entry
 	TIndexOffU *ents_; /// ptr to entries, which are flat offs within joined ref
-	TEbwt    *ebwt_; /// index that alignments are in
+	Ebwt    *ebwt_; /// index that alignments are in
 	bool     verbose_; /// be talkative?
 	bool     sanity_;  /// do consistency checks?
 };
@@ -342,14 +342,12 @@ private:
  *
  */
 class RangeCache {
-
-	typedef Ebwt<String<Dna> > TEbwt;
-	typedef std::vector<TIndexOffU> TUVec;
+	typedef EList<TIndexOffU> TUVec;
 	typedef std::map<TIndexOffU, TIndexOffU> TMap;
 	typedef std::map<TIndexOffU, TIndexOffU>::iterator TMapItr;
 
 public:
-	RangeCache(TIndexOffU lim, TEbwt* ebwt) :
+	RangeCache(TIndexOffU lim, Ebwt* ebwt) :
 		lim_(lim), map_(), pool_(lim), closed_(false), ebwt_(ebwt), sanity_(true) { }
 
 	/**
@@ -405,7 +403,8 @@ public:
 			}
 			TIndexOffU len = ents[0];
 			assert_leq(top + len, ebwt_->_eh._len);
-			RangeCacheEntry::sanityCheckEnts(len, ents + 1, ebwt_);
+			if (sanity_)
+				RangeCacheEntry::sanityCheckEnts(len, ents + 1, ebwt_);
 		}
 #endif
 		return true;
@@ -537,7 +536,7 @@ protected:
 	TMap map_;               ///
 	RangeCacheMemPool pool_; /// Memory pool
 	bool closed_;            /// Out of space; no new entries
-	TEbwt* ebwt_;            /// Index that alignments are in
+	Ebwt* ebwt_;            /// Index that alignments are in
 	bool sanity_;
 };
 

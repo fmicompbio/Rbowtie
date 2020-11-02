@@ -6,12 +6,14 @@
 #define POOL_H_
 
 #include <iostream>
-#include <vector>
 #include <stdexcept>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
+
 #include "bitset.h"
+#include "ds.h"
 #include "log.h"
+#include "read.h"
 #include "search_globals.h"
 
 /**
@@ -55,7 +57,7 @@ public:
 	/**
 	 * Reset the pool, freeing all arrays that had been given out.
 	 */
-	void reset(String<char>* name, uint32_t patid_) {
+	void reset(BTString* name, uint32_t patid_) {
 		patid = patid_;
 		readName_ = name;
 		cur_ = 0;
@@ -172,7 +174,7 @@ protected:
 	FixedBitset2 bits_;
 	bool exhaustCrash_; /// abort hard when memory's exhausted?
 	uint32_t lastSkippedRead_;
-	String<char>* readName_;
+	BTString* readName_;
 };
 
 /**
@@ -283,7 +285,6 @@ public:
 		}
 		if(cur_ > 0 && t == &pools_[curPool_][cur_-1]) {
 			cur_--;
-			ASSERT_ONLY(memset(&pools_[curPool_][cur_], 0, sizeof(T)));
 			if(cur_ == 0 && curPool_ > 0) {
 				rewindPool();
 			}
@@ -303,7 +304,6 @@ public:
 		}
 		if(num <= cur_ && t == &pools_[curPool_][cur_ - num]) {
 			cur_ -= num;
-			ASSERT_ONLY(memset(&pools_[curPool_][cur_], 0, num * sizeof(T)));
 			if(cur_ == 0 && curPool_ > 0) {
 				rewindPool();
 			}
@@ -344,7 +344,6 @@ protected:
 			pool_->exhausted();
 			return false;
 		}
-		ASSERT_ONLY(memset(pool, 0, lim_ * sizeof(T)));
 		pools_.push_back(pool);
 		lastCurInPool_.push_back(cur_);
 		curPool_++;
@@ -364,7 +363,6 @@ protected:
 				pool_->exhausted();
 				return false;
 			}
-			ASSERT_ONLY(memset(pool, 0, lim_ * sizeof(T)));
 			pools_.push_back(pool);
 			assert_eq(1, pools_.size());
 		}
@@ -390,9 +388,9 @@ protected:
 
 	ChunkPool*      pool_;
 	const char     *name_;
-	std::vector<T*> pools_; /// the memory pools
+	EList<T*> pools_; /// the memory pools
 	uint32_t        curPool_; /// pool we're current allocating from
-	std::vector<uint32_t> lastCurInPool_;
+	EList<uint32_t> lastCurInPool_;
 	uint32_t        lim_;  /// # elements held in pool_
 	uint32_t        cur_;  /// index of next free element of pool_
 };

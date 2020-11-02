@@ -2,14 +2,16 @@
 #define EBWT_SEARCH_BACKTRACK_H_
 
 #include <stdexcept>
-#include <seqan/sequence.h>
+
+#include "aligner_metrics.h"
+#include "ds.h"
+#include "ebwt_search_util.h"
 #include "pat.h"
 #include "qual.h"
-#include "ebwt_search_util.h"
 #include "range.h"
 #include "range_source.h"
-#include "aligner_metrics.h"
 #include "search_globals.h"
+#include "sstring.h"
 
 /**
  * Class that coordinates quality- and quantity-aware backtracking over
@@ -21,26 +23,23 @@
 class GreedyDFSRangeSource {
 
 	typedef std::pair<int, int> TIntPair;
-	typedef seqan::String<seqan::Dna> DnaString;
 
 public:
 	GreedyDFSRangeSource(
-			const Ebwt<DnaString>* ebwt,
-			const EbwtSearchParams<DnaString>& params,
-			const BitPairReference* refs,
+			const Ebwt* ebwt,
+			const EbwtSearchParams& params,
 			uint32_t qualThresh,  /// max acceptable q-distance
 			const int maxBts, /// maximum # backtracks allowed
 			uint32_t reportPartials = 0,
 			bool reportExacts = true,
 			bool reportRanges = false,
 			PartialAlignmentManager* partials = NULL,
-			String<QueryMutation>* muts = NULL,
+			EList<QueryMutation>* muts = NULL,
 			bool verbose = true,
-			vector<String<Dna5> >* os = NULL,
+			EList<BTRefString >* os = NULL,
 			bool considerQuals = true,  // whether to consider quality values when making backtracking decisions
 			bool halfAndHalf = false, // hacky way of supporting separate revisitable regions
 			bool maqPenalty = true) :
-		_refs(refs),
 		_qry(NULL),
 		_qlen(0),
 		_qual(NULL),
@@ -100,9 +99,9 @@ public:
 		}
 		_name = &r.name;
 		// Reset _qlen
-		if(length(*_qry) > _qlen) {
+		if(_qry->length() > _qlen) {
 			try {
-				_qlen = length(*_qry);
+				_qlen = _qry->length();
 				// Resize _pairs
 				if(_pairs != NULL) { delete[] _pairs; }
 				_pairs = new TIndexOffU[_qlen*_qlen*8];
@@ -117,7 +116,7 @@ public:
 			} catch(std::bad_alloc& e) {
 				ThreadSafe _ts(&gLock);
 				cerr << "Unable to allocate memory for depth-first "
-				     << "backtracking search; new length = " << length(*_qry)
+				     << "backtracking search; new length = " << _qry->length()
 				     << endl;
 				throw 1;
 			}
@@ -125,21 +124,18 @@ public:
 			// New length is less than old length, so there's no need
 			// to resize any data structures.
 			assert(_pairs != NULL && _elims != NULL && _chars != NULL);
-			_qlen = length(*_qry);
+			_qlen = _qry->length();
 		}
 		_mms.clear();
 		_refcs.clear();
-		assert_geq(length(*_qual), _qlen);
+		assert_geq(_qual->length(), _qlen);
 		if(_verbose) {
 			cout << "setQuery(_qry=" << (*_qry) << ", _qual=" << (*_qual) << ")" << endl;
 		}
 		// Initialize the random source using new read as part of the
 		// seed.
-		_color = r.color;
 		_seed = r.seed;
-		_patid = r.patid;
-		_primer = r.primer;
-		_trimc = r.trimc;
+		_patid = r.rdid;
 		_rand.init(r.seed);
 	}
 
@@ -147,15 +143,15 @@ public:
 	 * Apply a batch of mutations to this read, possibly displacing a
 	 * previous batch of mutations.
 	 */
-	void setMuts(String<QueryMutation>* muts) {
+	void setMuts(EList<QueryMutation>* muts) {
 		if(_muts != NULL) {
 			// Undo previous mutations
-			assert_gt(length(*_muts), 0);
+			assert_gt(_muts->size(), 0);
 			undoPartialMutations();
 		}
 		_muts = muts;
 		if(_muts != NULL) {
-			assert_gt(length(*_muts), 0);
+			assert_gt(_muts->size(), 0);
 			applyPartialMutations();
 		}
 	}
@@ -204,7 +200,7 @@ public:
 	/**
 	 * Set the Bowtie index to search against.
 	 */
-	void setEbwt(const Ebwt<String<Dna> >* ebwt) {
+	void setEbwt(const Ebwt* ebwt) {
 		_ebwt = ebwt;
 	}
 
@@ -220,7 +216,7 @@ public:
 	 */
 	void setQlen(uint32_t qlen) {
 		assert(_qry != NULL);
-		_qlen = min<uint32_t>((uint32_t)length(*_qry), qlen);
+		_qlen = min<uint32_t>((uint32_t)_qry->length(), qlen);
 	}
 
 	/// Return the maximum number of allowed backtracks in a given call
@@ -239,10 +235,10 @@ public:
 	 * this read.
 	 */
 	bool backtrack(uint32_t ham = 0) {
-		assert_gt(length(*_qry), 0);
-		assert_leq(_qlen, length(*_qry));
-		assert_geq(length(*_qual), length(*_qry));
-		const Ebwt<String<Dna> >& ebwt = *_ebwt;
+		assert_gt(_qry->length(), 0);
+		assert_leq(_qlen, _qry->length());
+		assert_geq(_qual->length(), _qry->length());
+		const Ebwt& ebwt = *_ebwt;
 		int ftabChars = ebwt._eh._ftabChars;
 		int nsInSeed = 0; int nsInFtab = 0;
 		if(!tallyNs(nsInSeed, nsInFtab)) {
@@ -380,9 +376,9 @@ public:
 	{
 		// Can't have already exceeded weighted hamming distance threshold
 		assert_leq(stackDepth, depth);
-		assert_gt(length(*_qry), 0);
-		assert_leq(_qlen, length(*_qry));
-		assert_geq(length(*_qual), length(*_qry));
+		assert_gt(_qry->length(), 0);
+		assert_leq(_qlen, _qry->length());
+		assert_geq(_qual->length(), _qry->length());
 		assert(_qry != NULL);
 		assert(_qual != NULL);
 		assert(_name != NULL);
@@ -393,7 +389,7 @@ public:
 		assert(pairs != NULL);
 		assert(elims != NULL);
 		assert_leq(stackDepth, _qlen);
-		const Ebwt<String<Dna> >& ebwt = *_ebwt;
+		const Ebwt& ebwt = *_ebwt;
 		HitSinkPerThread& sink = _params.sink();
 		uint64_t prehits = sink.numValidHits();
 		if(_halfAndHalf) {
@@ -1120,7 +1116,7 @@ protected:
 	 * true.
 	 */
 	bool hhCheck(uint32_t stackDepth, uint32_t depth,
-	             const std::vector<uint32_t>& mms, bool empty)
+	             const EList<uint32_t>& mms, bool empty)
 	{
 		ASSERT_ONLY(uint32_t lim = (_3revOff == _2revOff)? 2 : 3);
 		if((depth == (_5depth-1)) && !empty) {
@@ -1165,7 +1161,7 @@ protected:
 	 * currently under consideration.  Stratum is equal to the number
 	 * of mismatches in the seed portion of the alignment.
 	 */
-	int calcStratum(const std::vector<TIndexOffU>& mms, uint32_t stackDepth) {
+	int calcStratum(const EList<TIndexOffU>& mms, uint32_t stackDepth) {
 		int stratum = 0;
 		for(size_t i = 0; i < stackDepth; i++) {
 			if(mms[i] >= (_qlen - _3revOff)) {
@@ -1204,7 +1200,7 @@ protected:
 	bool hhCheckTop(uint32_t stackDepth,
 	                uint32_t d,
 	                uint32_t iham,
-	                const std::vector<TIndexOffU>& mms,
+	                const EList<TIndexOffU>& mms,
 	                uint64_t prehits = 0xffffffffffffffffllu)
 	{
 		assert_eq(0, _reportPartials);
@@ -1310,7 +1306,7 @@ protected:
 	 * false if the policy is already violated, true otherwise.
 	 */
 	bool tallyNs(int& nsInSeed, int& nsInFtab) {
-		const Ebwt<String<Dna> >& ebwt = *_ebwt;
+		const Ebwt& ebwt = *_ebwt;
 		int ftabChars = ebwt._eh._ftabChars;
 		// Count Ns in the seed region of the read and short-circuit if
 		// the configuration of Ns guarantees that there will be no
@@ -1350,7 +1346,7 @@ protected:
 	 * significant bit-pair.
 	 */
 	uint32_t calcFtabOff() {
-		const Ebwt<String<Dna> >& ebwt = *_ebwt;
+		const Ebwt& ebwt = *_ebwt;
 		int ftabChars = ebwt._eh._ftabChars;
 		uint32_t ftabOff = (*_qry)[_qlen - ftabChars];
 		assert_lt(ftabOff, 4);
@@ -1374,14 +1370,14 @@ protected:
 			// No mutations to apply
 			return;
 		}
-		for(size_t i = 0; i < length(*_muts); i++) {
+		for(size_t i = 0; i < _muts->size(); i++) {
 			const QueryMutation& m = (*_muts)[i];
 			assert_lt(m.pos, _qlen);
 			assert_leq(m.oldBase, 4);
 			assert_lt(m.newBase, 4);
 			assert_neq(m.oldBase, m.newBase);
 			assert_eq((uint32_t)((*_qry)[m.pos]), (uint32_t)m.oldBase);
-			(*_qry)[m.pos] = (Dna5)(int)m.newBase; // apply it
+			(*_qry)[m.pos] = (char)m.newBase; // apply it
 		}
 	}
 
@@ -1395,7 +1391,7 @@ protected:
 			// No mutations to undo
 			return;
 		}
-		size_t numMuts = length(*_muts);
+		size_t numMuts = _muts->size();
 		assert_leq(numMuts, _qlen);
 		for(size_t i = 0; i < numMuts; i++) {
 			// Entries in _mms[] are in terms of offset into
@@ -1438,14 +1434,14 @@ protected:
 			// No mutations to undo
 			return;
 		}
-		for(size_t i = 0; i < length(*_muts); i++) {
+		for(size_t i = 0; i < _muts->size(); i++) {
 			const QueryMutation& m = (*_muts)[i];
 			assert_lt(m.pos, _qlen);
 			assert_leq(m.oldBase, 4);
 			assert_lt(m.newBase, 4);
 			assert_neq(m.oldBase, m.newBase);
 			assert_eq((uint32_t)((*_qry)[m.pos]), (uint32_t)m.newBase);
-			(*_qry)[m.pos] = (Dna5)(int)m.oldBase; // undo it
+			(*_qry)[m.pos] = (char)m.oldBase; // undo it
 		}
 	}
 
@@ -1492,13 +1488,13 @@ protected:
 		// in the partial.
 		if(_muts != NULL) {
 			// Undo partial-alignment mutations to get original _qry
-			ASSERT_ONLY(String<Dna5> tmp = (*_qry));
+			ASSERT_ONLY(BTDnaString tmp = (*_qry));
 			undoPartialMutations();
 			assert_neq(tmp, (*_qry));
 			// Add the partial-alignment mutations to the _mms[] array
 			promotePartialMutations(stackDepth);
 			// All muts are in the seed, so they count toward the stratum
-			size_t numMuts = length(*_muts);
+			size_t numMuts = _muts->size();
 			stratum += numMuts;
 			cost |= (stratum << 14);
 			assert_geq(cost, (uint32_t)(stratum << 14));
@@ -1548,8 +1544,7 @@ protected:
 			// of their offset from the 3' or 5' end.
 			assert_geq(cost, (uint32_t)(stratum << 14));
 			if(_ebwt->reportChaseOne((*_qry), _qual, _name,
-			                         _color, _primer, _trimc, colorExEnds,
-			                         snpPhred, _refs, _mms, _refcs,
+			                         _mms, _refcs,
 			                         stackDepth, ri, top, bot,
 			                         (uint32_t)_qlen, stratum, cost, _patid,
 			                         _seed, _params))
@@ -1601,7 +1596,7 @@ protected:
 		ASSERT_ONLY(qualTot += qual0);
 		uint32_t ci = (uint32_t)(_qlen - _mms[0] - 1);
 		// _chars[] is index in terms of RHS-relative depth
-		int c = (int)(Dna5)_chars[ci];
+		int c = asc2dna[(int)_chars[ci]];
 		assert_lt(c, 4);
 		assert_neq(c, (int)(*_qry)[_mms[0]]);
 		// Second, append the substituted character for the position
@@ -1617,7 +1612,7 @@ protected:
 			ASSERT_ONLY(qualTot += qual1);
 			ci = (uint32_t)(_qlen - _mms[1] - 1);
 			// _chars[] is index in terms of RHS-relative depth
-			c = (int)(Dna5)_chars[ci];
+			c = asc2dna[(int)_chars[ci]];
 			assert_lt(c, 4);
 			assert_neq(c, (int)(*_qry)[_mms[1]]);
 			// Second, append the substituted character for the position
@@ -1632,7 +1627,7 @@ protected:
 				ASSERT_ONLY(qualTot += qual2);
 				ci = (uint32_t)(_qlen - _mms[2] - 1);
 				// _chars[] is index in terms of RHS-relative depth
-				c = (int)(Dna5)_chars[ci];
+				c = asc2dna[(int)_chars[ci]];
 				assert_lt(c, 4);
 				assert_neq(c, (int)(*_qry)[_mms[2]]);
 				// Second, append the substituted character for the position
@@ -1700,14 +1695,12 @@ protected:
 		return true;
 	}
 
-	const BitPairReference* _refs; // reference sequences (or NULL if not colorspace)
-	String<Dna5>*       _qry;    // query (read) sequence
+	BTDnaString*        _qry;    // query (read) sequence
 	size_t              _qlen;   // length of _qry
-	String<char>*       _qual;   // quality values for _qry
-	String<char>*       _name;   // name of _qry
-	bool                _color;  // whether read is colorspace
-	const Ebwt<String<Dna> >* _ebwt;   // Ebwt to search in
-	const EbwtSearchParams<String<Dna> >& _params;   // Ebwt to search in
+	BTString*           _qual;   // quality values for _qry
+	BTString*           _name;   // name of _qry
+	const Ebwt* _ebwt;   // Ebwt to search in
+	const EbwtSearchParams& _params;   // Ebwt to search in
 	uint32_t            _unrevOff; // unrevisitable chunk
 	uint32_t            _1revOff;  // 1-revisitable chunk
 	uint32_t            _2revOff;  // 2-revisitable chunk
@@ -1721,8 +1714,8 @@ protected:
 	uint8_t            *_elims;  // which ranges have been
 	                             // eliminated, leveled in parallel
 	                             // with decision stack
-	std::vector<TIndexOffU> _mms;  // array for holding mismatches
-	std::vector<uint8_t> _refcs;  // array for holding mismatches
+	EList<TIndexOffU> _mms;  // array for holding mismatches
+	EList<uint8_t> _refcs;  // array for holding mismatches
 	// Entries in _mms[] are in terms of offset into
 	// _qry - not in terms of offset from 3' or 5' end
 	char               *_chars;  // characters selected so far
@@ -1736,9 +1729,9 @@ protected:
 	/// Append partial alignments here
 	PartialAlignmentManager *_partials;
 	/// Set of mutations that apply for a partial alignment
-	String<QueryMutation> *_muts;
+	EList<QueryMutation> *_muts;
 	/// Reference texts (NULL if they are unavailable
-	vector<String<Dna5> >* _os;
+	EList<BTRefString >* _os;
 	/// Whether to use the _os array together with a naive matching
 	/// algorithm to double-check reported alignments (or the lack
 	/// thereof)
@@ -1752,7 +1745,7 @@ protected:
 	/// Depth of 3'-seed-half border
 	uint32_t            _3depth;
 	/// Default quals
-	String<char>        _qualDefault;
+	BTString            _qualDefault;
 	/// Number of backtracks in last call to backtrack()
 	uint32_t            _numBts;
 	/// Number of backtracks since last reset
@@ -1775,12 +1768,10 @@ protected:
 	bool                _verbose;
 	uint64_t            _ihits;
 	// Holding area for partial alignments
-	vector<PartialAlignment> _partialsBuf;
+	EList<PartialAlignment> _partialsBuf;
 	// Current range to expose to consumers
 	Range               _curRange;
 	uint32_t            _patid;
-	char                _primer;
-	char                _trimc;
 	uint32_t            _seed;
 #ifndef NDEBUG
 	std::set<TIndexOff> allTops_;
@@ -1795,11 +1786,10 @@ protected:
  * stretches of the read differently.
  */
 class EbwtRangeSource : public RangeSource {
-	typedef Ebwt<String<Dna> > TEbwt;
 	typedef std::pair<int, int> TIntPair;
 public:
 	EbwtRangeSource(
-			const TEbwt* ebwt,
+			const Ebwt* ebwt,
 			bool         fw,
 			TIndexOffU   qualLim,
 			bool         reportExacts,
@@ -1850,7 +1840,7 @@ public:
 		name_ = &r.name;
 		if(seedRange != NULL) seedRange_ = *seedRange;
 		else                  seedRange_.invalidate();
-		qlen_ = length(*qry_);
+		qlen_ = qry_->length();
 		skippingThisRead_ = false;
 		// Apply edits from the partial alignment to the query pattern
 		if(seedRange_.valid()) {
@@ -1864,19 +1854,18 @@ public:
 				assert(rc == 'A' || rc == 'C' || rc == 'G' || rc == 'T');
 				ASSERT_ONLY(char oc = (char)qryBuf_[qlen_ - seedRange_.mms[i] - 1]);
 				assert_neq(rc, oc);
-				qryBuf_[qlen_ - seedRange_.mms[i] - 1] = (Dna5)rc;
-				assert_neq((Dna5)rc, (*qry_)[qlen_ - seedRange_.mms[i] - 1]);
+				qryBuf_[qlen_ - seedRange_.mms[i] - 1] = asc2dna[(int)rc];
+				assert_neq(rc, (*qry_)[qlen_ - seedRange_.mms[i] - 1]);
 			}
 			qry_ = &qryBuf_;
 		}
 		// Make sure every qual is a valid qual ASCII character (>= 33)
-		for(size_t i = 0; i < length(*qual_); i++) {
+		for(size_t i = 0; i < qual_->length(); i++) {
 			assert_geq((*qual_)[i], 33);
 		}
-		assert_geq(length(*qual_), qlen_);
+		assert_geq(qual_->length(), qlen_);
 		this->done = false;
 		this->foundRange = false;
-		color_ = r.color;
 		rand_.init(r.seed);
 	}
 
@@ -1918,7 +1907,7 @@ public:
 	 */
 	void setQlen(uint32_t qlen) {
 		assert(qry_ != NULL);
-		qlen_ = min<uint32_t>((uint32_t)length(*qry_), qlen);
+		qlen_ = min<uint32_t>((uint32_t)qry_->length(), qlen);
 	}
 
 	/**
@@ -1931,10 +1920,10 @@ public:
 	virtual void
 	initBranch(PathManager& pm) {
 		assert(curEbwt_ != NULL);
-		assert_gt(length(*qry_), 0);
-		assert_leq(qlen_, length(*qry_));
-		assert_geq(length(*qual_), length(*qry_));
-		const Ebwt<String<Dna> >& ebwt = *ebwt_;
+		assert_gt(qry_->length(), 0);
+		assert_leq(qlen_, qry_->length());
+		assert_geq(qual_->length(), qry_->length());
+		const Ebwt& ebwt = *ebwt_;
 		int ftabChars = ebwt._eh._ftabChars;
 		this->foundRange = false;
 		int nsInSeed = 0; int nsInFtab = 0;
@@ -2076,9 +2065,9 @@ public:
 		this->foundRange = false;
 
 		// Can't have already exceeded weighted hamming distance threshold
-		assert_gt(length(*qry_), 0);
-		assert_leq(qlen_, length(*qry_));
-		assert_geq(length(*qual_), length(*qry_));
+		assert_gt(qry_->length(), 0);
+		assert_leq(qlen_, qry_->length());
+		assert_geq(qual_->length(), qry_->length());
 		assert(!pm.empty());
 
 		do {
@@ -2092,7 +2081,7 @@ public:
 			assert_gt(br->depth3_, 0);
 			assert_leq(br->ham_, qualLim_);
 			if(verbose_) {
-				br->print((*qry_), (*qual_), minCost, cout, (halfAndHalf_>0), partial_, fw_, ebwt_->fw());
+				br->print(*qry_, *qual_, minCost, cout, (halfAndHalf_>0), partial_, fw_, ebwt_->fw());
 				if(!br->edits_.empty()) {
 					cout << "Edit: ";
 					for(size_t i = 0; i < br->edits_.size(); i++) {
@@ -2112,7 +2101,7 @@ public:
 			// Not necessarily true with rounding
 			uint32_t depth = br->tipDepth();
 
-			const Ebwt<String<Dna> >& ebwt = *ebwt_;
+			const Ebwt& ebwt = *ebwt_;
 
 			if(halfAndHalf_ > 0) assert_gt(depth3_, depth5_);
 
@@ -2499,7 +2488,7 @@ protected:
 	 * false if the policy is already violated, true otherwise.
 	 */
 	bool tallyNs(int& nsInSeed, int& nsInFtab) {
-		const Ebwt<String<Dna> >& ebwt = *ebwt_;
+		const Ebwt& ebwt = *ebwt_;
 		int ftabChars = ebwt._eh._ftabChars;
 		// Count Ns in the seed region of the read and short-circuit if
 		// the configuration of Ns guarantees that there will be no
@@ -2539,7 +2528,7 @@ protected:
 	 * significant bit-pair.
 	 */
 	uint32_t calcFtabOff() {
-		const Ebwt<String<Dna> >& ebwt = *ebwt_;
+		const Ebwt& ebwt = *ebwt_;
 		int ftabChars = ebwt._eh._ftabChars;
 		uint32_t ftabOff = (*qry_)[qlen_ - ftabChars];
 		assert_lt(ftabOff, 4);
@@ -2554,18 +2543,17 @@ protected:
 		return ftabOff;
 	}
 
-	String<Dna5>*       qry_;    // query (read) sequence
-	String<Dna5>        qryBuf_; // for composing modified qry_ strings
-	size_t              qlen_;   // length of _qry
-	String<char>*       qual_;   // quality values for _qry
-	String<char>*       name_;   // name of _qry
-	bool                color_;  // true -> read is colorspace
-	const Ebwt<String<Dna> >*   ebwt_;   // Ebwt to search in
-	bool                fw_;
-	uint32_t            offRev0_; // unrevisitable chunk
-	uint32_t            offRev1_;  // 1-revisitable chunk
-	uint32_t            offRev2_;  // 2-revisitable chunk
-	uint32_t            offRev3_;  // 3-revisitable chunk
+	BTDnaString*    qry_;      // query (read) sequence
+	BTDnaString     qryBuf_;   	// for composing modified qry_ strings
+	size_t          qlen_;     // length of _qry
+	BTString*       qual_;     // quality values for _qry
+	BTString*       name_;     // name of _qry
+	const Ebwt*	ebwt_;     // Ebwt to search in
+	bool            fw_;
+	uint32_t        offRev0_;  // unrevisitable chunk
+	uint32_t        offRev1_;  // 1-revisitable chunk
+	uint32_t        offRev2_;  // 2-revisitable chunk
+	uint32_t        offRev3_;  // 3-revisitable chunk
 	/// Whether to round qualities off Maq-style when calculating penalties
 	bool                maqPenalty_;
 	/// Whether to order paths on our search in a way that takes
@@ -2614,10 +2602,9 @@ protected:
  * Concrete factory for EbwtRangeSource objects.
  */
 class EbwtRangeSourceFactory {
-	typedef Ebwt<String<Dna> > TEbwt;
 public:
 	EbwtRangeSourceFactory(
-			const TEbwt* ebwt,
+			const Ebwt* ebwt,
 			bool         fw,
 			uint32_t     qualThresh,
 			bool         reportExacts,
@@ -2651,7 +2638,7 @@ public:
 	}
 
 protected:
-	const TEbwt* ebwt_;
+	const Ebwt* ebwt_;
 	bool         fw_;
 	uint32_t     qualThresh_;
 	bool         reportExacts_;
@@ -2685,7 +2672,7 @@ class EbwtRangeSourceDriver :
 {
 public:
 	EbwtRangeSourceDriver(
-			EbwtSearchParams<String<Dna> >& params,
+			EbwtSearchParams& params,
 			EbwtRangeSource* rs,
 			bool fw,
 			bool seed,
@@ -2699,7 +2686,7 @@ public:
 			SearchConstraintExtent rev1Off,
 			SearchConstraintExtent rev2Off,
 			SearchConstraintExtent rev3Off,
-			vector<String<Dna5> >& os,
+			EList<BTRefString >& os,
 			bool verbose,
 			bool quiet,
 			bool mate1,
@@ -2731,10 +2718,10 @@ public:
 	 * after setQuery() has been called on the RangeSource but before
 	 * initConts() has been called.
 	 */
-	virtual void initRangeSource(const String<char>& qual) {
+	virtual void initRangeSource(const BTString& qual) {
 		// If seedLen_ is huge, then it will always cover the whole
 		// alignment
-		assert_eq(len_, seqan::length(qual));
+		assert_eq(len_, qual.length());
 		uint32_t s = (seedLen_ > 0 ? min(seedLen_, len_) : len_);
 		uint32_t sLeft  = s >> 1;
 		uint32_t sRight = s >> 1;
@@ -2745,7 +2732,7 @@ public:
 		uint32_t rev2Off = cextToDepth(rev2Off_, sRight, s, len_);
 		uint32_t rev3Off = cextToDepth(rev3Off_, sRight, s, len_);
 		// Truncate the pattern if necessary
-		uint32_t qlen = (uint32_t)seqan::length(qual);
+		uint32_t qlen = (uint32_t)qual.length();
 		if(seed_) {
 			if(len_ > s) {
 				rs_->setQlen(s);
@@ -2859,7 +2846,7 @@ protected:
 class EbwtRangeSourceDriverFactory {
 public:
 	EbwtRangeSourceDriverFactory(
-			EbwtSearchParams<String<Dna> >& params,
+			EbwtSearchParams& params,
 			EbwtRangeSourceFactory* rs,
 			bool fw,
 			bool seed,
@@ -2873,7 +2860,7 @@ public:
 			SearchConstraintExtent rev1Off,
 			SearchConstraintExtent rev2Off,
 			SearchConstraintExtent rev3Off,
-			vector<String<Dna5> >& os,
+			EList<BTRefString >& os,
 			bool verbose,
 			bool quiet,
 			bool mate1,
@@ -2918,7 +2905,7 @@ public:
 	}
 
 protected:
-	EbwtSearchParams<String<Dna> >& params_;
+	EbwtSearchParams& params_;
 	EbwtRangeSourceFactory* rs_;
 	bool fw_;
 	bool seed_;
@@ -2932,7 +2919,7 @@ protected:
 	SearchConstraintExtent rev1Off_;
 	SearchConstraintExtent rev2Off_;
 	SearchConstraintExtent rev3Off_;
-	vector<String<Dna5> >& os_;
+	EList<BTRefString >& os_;
 	bool verbose_;
 	bool quiet_;
 	bool mate1_;

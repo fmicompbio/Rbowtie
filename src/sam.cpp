@@ -5,13 +5,12 @@
  *      Author: Ben Langmead
  */
 
-#include <vector>
-#include <string>
-#include <iostream>
-#include "pat.h"
 #include "hit.h"
+#include "pat.h"
 #include "sam.h"
 #include "search_globals.h"
+#include <iostream>
+#include <string>
 
 using namespace std;
 
@@ -21,8 +20,7 @@ using namespace std;
 void SAMHitSink::appendHeaders(
 	OutFileBuf& os,
 	size_t numRefs,
-	const vector<string>& refnames,
-	bool color,
+	const EList<string>& refnames,
 	bool nosq,
 	const TIndexOffU* plen,
 	bool fullRef,
@@ -41,7 +39,7 @@ void SAMHitSink::appendHeaders(
 			} else {
 				o << i;
 			}
-			o << "\tLN:" << (plen[i] + (color ? 1 : 0)) << '\n';
+			o << "\tLN:" << (plen[i]) << '\n';
 		}
 	}
 	if(rgline != NULL) {
@@ -58,13 +56,17 @@ void SAMHitSink::appendHeaders(
  */
 void SAMHitSink::reportUnOrMax(
 	PatternSourcePerThread& p,
-	vector<Hit>* hs,
+	EList<Hit>* hs,
 	size_t threadId,
 	bool un)
 {
 	if(un) {
 		HitSink::reportUnaligned(threadId, p);
 		if (noUnal) {
+			if (reorder_) {
+				ptCounts_[threadId]++;
+				maybeFlush(threadId);
+			}
 			return;
 		}
 	} else {
@@ -77,68 +79,48 @@ void SAMHitSink::reportUnOrMax(
 	assert(!un || hs == NULL || hs->size() == 0);
 	size_t hssz = 0;
 	if(hs != NULL) hssz = hs->size();
-	maybeFlush(threadId);
 	BTString& o = ptBufs_[threadId];
-	for(int i = 0; i < (int)seqan::length(p.bufa().name) - (paired ? 2 : 0); i++) {
+	for(int i = 0; i < (int)p.bufa().name.length() - (paired ? 2 : 0); i++) {
 		if(!noQnameTrunc_ && isspace((int)p.bufa().name[i])) break;
 		o << p.bufa().name[i];
 	}
 	o << '\t'
 	  << (SAM_FLAG_UNMAPPED | (paired ? (SAM_FLAG_PAIRED | SAM_FLAG_FIRST_IN_PAIR | SAM_FLAG_MATE_UNMAPPED) : 0)) << "\t*"
 	  << "\t0\t0\t*\t*\t0\t0\t";
-	for(size_t i = 0; i < seqan::length(p.bufa().patFw); i++) {
-		o << (char)p.bufa().patFw[i];
+	for(size_t i = 0; i < p.bufa().patFw.length(); i++) {
+		o << (char)p.bufa().patFw.toChar(i);
 	}
 	o << '\t';
-	for(size_t i = 0; i < seqan::length(p.bufa().qual); i++) {
+	for(size_t i = 0; i < p.bufa().qual.length(); i++) {
 		o << (char)p.bufa().qual[i];
 	}
 	o << "\tXM:i:" << (paired ? (hssz+1)/2 : hssz);
-	// Add optional fields reporting the primer base and the downstream color,
-	// which, if they were present, were clipped when the read was read in
-	if(p.bufa().color && gReportColorPrimer) {
-		if(p.bufa().primer != '?') {
-			o << "\tZP:Z:" << p.bufa().primer;
-			assert(isprint(p.bufa().primer));
-		}
-		if(p.bufa().trimc != '?') {
-			o << "\tZp:Z:" << p.bufa().trimc;
-			assert(isprint(p.bufa().trimc));
-		}
-	}
 	o << '\n';
 	if(paired) {
 		// truncate final 2 chars
-		for(int i = 0; i < (int)seqan::length(p.bufb().name)-2; i++) {
+		for(int i = 0; i < (int)p.bufb().name.length()-2; i++) {
 			if(!noQnameTrunc_ && isspace((int)p.bufb().name[i])) break;
 			o << p.bufb().name[i];
 		}
 		o << '\t'
 		  << (SAM_FLAG_UNMAPPED | (paired ? (SAM_FLAG_PAIRED | SAM_FLAG_SECOND_IN_PAIR | SAM_FLAG_MATE_UNMAPPED) : 0)) << "\t*"
 		  << "\t0\t0\t*\t*\t0\t0\t";
-		for(size_t i = 0; i < seqan::length(p.bufb().patFw); i++) {
-			o << (char)p.bufb().patFw[i];
+		for(size_t i = 0; i < p.bufb().patFw.length(); i++) {
+			o << (char)p.bufb().patFw.toChar(i);
 		}
 		o << '\t';
-		for(size_t i = 0; i < seqan::length(p.bufb().qual); i++) {
+		for(size_t i = 0; i < p.bufb().qual.length(); i++) {
 			o << (char)p.bufb().qual[i];
 		}
 		o << "\tXM:i:" << (hssz+1)/2;
-		// Add optional fields reporting the primer base and the downstream color,
-		// which, if they were present, were clipped when the read was read in
-		if(p.bufb().color && gReportColorPrimer) {
-			if(p.bufb().primer != '?') {
-				o << "\tZP:Z:" << p.bufb().primer;
-				assert(isprint(p.bufb().primer));
-			}
-			if(p.bufb().trimc != '?') {
-				o << "\tZp:Z:" << p.bufb().trimc;
-				assert(isprint(p.bufb().trimc));
-			}
-		}
 		o << '\n';
 	}
 	ptCounts_[threadId]++;
+	if (reorder_ && reorderInfo_[threadId].flushed) {
+		reorderInfo_[threadId].batchId = p.batch_id();
+		reorderInfo_[threadId].flushed = false;
+	}
+	maybeFlush(threadId);
 }
 
 /**
@@ -148,12 +130,12 @@ void SAMHitSink::append(BTString& o, const Hit& h, int mapq, int xms) {
 	// QNAME
 	if(h.mate > 0) {
 		// truncate final 2 chars
-		for(int i = 0; i < (int)seqan::length(h.patName)-2; i++) {
+		for(int i = 0; i < (int)h.patName.length()-2; i++) {
 			if(!noQnameTrunc_ && isspace((int)h.patName[i])) break;
 			o << h.patName[i];
 		}
 	} else {
-		for(int i = 0; i < (int)seqan::length(h.patName); i++) {
+		for(int i = 0; i < (int)h.patName.length(); i++) {
 			if(!noQnameTrunc_ && isspace((int)h.patName[i])) break;
 			o << h.patName[i];
 		}
@@ -210,12 +192,12 @@ void SAMHitSink::append(BTString& o, const Hit& h, int mapq, int xms) {
 	}
 	// SEQ
 	o << '\t';
-	for(size_t i = 0; i < seqan::length(h.patSeq); i++) {
-		o << (char)h.patSeq[i];
+	for(size_t i = 0; i < h.patSeq.length(); i++) {
+		o << (char)h.patSeq.toChar(i);
 	}
 	// QUAL
 	o << '\t';
-	for(size_t i = 0; i < seqan::length(h.quals); i++) {
+	for(size_t i = 0; i < h.quals.length(); i++) {
 		o << (char)h.quals[i];
 	}
 	//
@@ -227,23 +209,13 @@ void SAMHitSink::append(BTString& o, const Hit& h, int mapq, int xms) {
 	//ss << "\tXC:i:" << (int)h.cost;
 	// Look for SNP annotations falling within the alignment
 	// Output MD field
-	size_t len = length(h.patSeq);
+	size_t len = h.patSeq.length();
 	int nm = 0;
 	int run = 0;
 	o << "\tMD:Z:";
 	const FixedBitset<1024> *mms = &h.mms;
-	ASSERT_ONLY(const String<Dna5>* pat = &h.patSeq);
-	const vector<char>* refcs = &h.refcs;
-#if 0
-	if(h.color && false) {
-		// Disabled: print MD:Z string w/r/t to colors, not letters
-		mms = &h.cmms;
-		ASSERT_ONLY(pat = &h.colSeq);
-		assert_eq(length(h.colSeq), len+1);
-		len = length(h.colSeq);
-		refcs = &h.crefcs;
-	}
-#endif
+	ASSERT_ONLY(const BTDnaString* pat = &h.patSeq);
+	const EList<char>* refcs = &h.refcs;
 	if(h.fw) {
 		for (int i = 0; i < (int)len; ++ i) {
 			if(mms->test(i)) {
@@ -278,21 +250,6 @@ void SAMHitSink::append(BTString& o, const Hit& h, int mapq, int xms) {
 	o << run;
 	// Add optional edit distance field
 	o << "\tNM:i:" << nm;
-	if(h.color) {
-		o << "\tCM:i:" << h.cmms.count();
-	}
-	// Add optional fields reporting the primer base and the downstream color,
-	// which, if they were present, were clipped when the read was read in
-	if(h.color && gReportColorPrimer) {
-		if(h.primer != '?') {
-			o << "\tZP:Z:" << h.primer;
-			assert(isprint(h.primer));
-		}
-		if(h.trimc != '?') {
-			o << "\tZp:Z:" << h.trimc;
-			assert(isprint(h.trimc));
-		}
-	}
 	if(xms > 0) {
 		o << "\tXM:i:" << xms;
 	}
@@ -304,12 +261,12 @@ void SAMHitSink::append(BTString& o, const Hit& h, int mapq, int xms) {
  * at random.
  */
 void SAMHitSink::reportMaxed(
-	vector<Hit>& hs,
+	EList<Hit>& hs,
 	size_t threadId,
 	PatternSourcePerThread& p)
 {
+	HitSink::reportMaxed(hs, threadId, p);
 	if(sampleMax_) {
-		HitSink::reportMaxed(hs, threadId, p);
 		RandomSource rand;
 		rand.init(p.bufa().seed);
 		assert_gt(hs.size(), 0);
@@ -334,7 +291,7 @@ void SAMHitSink::reportMaxed(
 				int strat = min(hs[i].stratum, hs[i+1].stratum);
 				if(strat == bestStratum) {
 					if(num == r) {
-						reportHits(NULL, &hs, i, i+2, threadId, 0, (int)(hs.size()/2)+1, true, p.rdid());
+						reportHits(NULL, &hs, i, i+2, threadId, 0, (int)(hs.size()/2)+1, true, p);
 						break;
 					}
 					num++;
@@ -349,9 +306,7 @@ void SAMHitSink::reportMaxed(
 			}
 			assert_leq(num, hs.size());
 			uint32_t r = rand.nextU32() % num;
-			reportHits(&hs[r], NULL, 0, 1, threadId, 0, (int)hs.size()+1, true, p.rdid());
+			reportHits(&hs[r], NULL, 0, 1, threadId, 0, (int)hs.size()+1, true, p);
 		}
-	} else {
-		reportUnOrMax(p, &hs, threadId, false);
 	}
 }
