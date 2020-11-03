@@ -17,10 +17,10 @@ We recommend to use the \pkg{QuasR} package instead of using \code{bowtie} and \
 
 \usage{
 bowtie_build(references, outdir, ..., prefix = "index", force = FALSE,
-strict = TRUE)
+strict = TRUE, execute = TRUE)
 
 bowtie(sequences, index, ..., type = c("single", "paired", "crossbow"),
-outfile, force = FALSE, strict = TRUE)
+outfile, force = FALSE, strict = TRUE, execute = TRUE)
 
 bowtie_build_usage()
 
@@ -70,6 +70,9 @@ bowtie_version()
   
   \item{strict}{Logical. Turn off strict checking of input arguments.}
   
+  \item{execute}{Logical scalar. Whether to execute the assembled shell
+    command. If \code{FALSE}, return a string with the command.}
+
   \item{\dots}{Additional arguments to be passed on to the binaries. See
     below for details.}
  
