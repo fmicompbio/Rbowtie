@@ -11,7 +11,7 @@ We recommend to use the `QuasR` package instead of using `Rbowtie` directly.
 
 ### Source code
 
-The source code for bowtie v1.2.3 was obtained from [https://github.com/BenLangmead/bowtie/archive/v1.2.3.tar.gz](https://github.com/BenLangmead/bowtie/archive/v1.2.3.tar.gz) on December 13, 2019. The folders genomes, reads, doc, indexes and scripts were not included into the package to reduce its size.
+The source code for bowtie v1.3.0 was obtained from [https://github.com/BenLangmead/bowtie/archive/v1.3.0.tar.gz](https://github.com/BenLangmead/bowtie/archive/v1.3.0.tar.gz) on November 2, 2020. The folders genomes, reads, doc, indexes and scripts were not included into the package to reduce its size.
 
 ### Software status
 
