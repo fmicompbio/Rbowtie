@@ -1,8 +1,8 @@
 ## The main wrapper around bowtie
 
 ## The main wrapper around bowtie-build
-bowtie_build <- function(references, outdir, ..., prefix="index", force=FALSE, strict=TRUE)
-{
+bowtie_build <- function(references, outdir, ..., prefix="index", force=FALSE,
+                         strict=TRUE, execute=TRUE) {
     if(strict && (!is.character(references) || !all(file.exists(references))))
         stop("Argument 'references' has to be a character vector of filenames ",
              "for building the sequence index.")
@@ -15,13 +15,13 @@ bowtie_build <- function(references, outdir, ..., prefix="index", force=FALSE, s
         dir.create(outdir, recursive=TRUE, showWarnings=FALSE)
     indexPrefix <- shQuote(path.expand(file.path(outdir, prefix)))
     args <- sprintf("%s %s %s", .createFlags(list(...)), paste(shQuote(path.expand(references)), collapse=","), indexPrefix)
-    return(invisible(.bowtieBin("bowtie-build", args)))
+    return(invisible(.bowtieBin("bowtie-build", args, execute=execute)))
 }
 
 
 ## The main wrapper around bowtie
 bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow"), outfile,
-                   force=FALSE, strict=TRUE)
+                   force=FALSE, strict=TRUE, execute=TRUE)
 {
     type <- match.arg(type)
     args <- list(...)
@@ -75,18 +75,18 @@ bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow")
    
     
     args <- sprintf("%s %s %s %s", .createFlags(args), shQuote(path.expand(index)), seqArg, outfile)
-    return(invisible(.bowtieBin("bowtie", args)))
+    return(invisible(.bowtieBin("bowtie", args, execute=execute)))
 }
 
 ## Little helpers that return a description of the intended usage for bowtie and bowtie-build
 bowtie_build_usage <- function()
-    print(bowtie_build("dummy", "dummy", force=TRUE, usage=TRUE, strict=FALSE))
+    print(.bowtieBin(bin="bowtie-build", args="--help", execute=TRUE))
 
 bowtie_usage <- function()
-    print(bowtie("dummy", "dummy", force=TRUE, usage=TRUE, strict=FALSE))
+    print(.bowtieBin(bin="bowtie", args="--help", execute=TRUE))
 
 bowtie_version <- function(){
-    print(.bowtieBin(bin="bowtie", args="--version"))
+    print(.bowtieBin(bin="bowtie", args="--version", execute=TRUE))
 }
 
 
@@ -118,14 +118,16 @@ bowtie_version <- function(){
 
 
 ## A helper function to call one of the two bowtie binaries with additional arguments.
-.bowtieBin <- function(bin=c("bowtie", "bowtie-build"), args="")
+.bowtieBin <- function(bin=c("bowtie", "bowtie-build"), args="", execute=TRUE)
 {
     if(is.null(args) || args=="")
         stop("The bowtie binaries need to be called with additional arguments")
     args <- gsub("^ *| *$", "", args)
     bin <- match.arg(bin)
     call <- paste(shQuote(file.path(system.file(package="Rbowtie"), bin)), args)
-    #return(call)
+    if (!execute) {
+      return(call)
+    }
     output <- system(call, intern=TRUE)
     return(output)
 }

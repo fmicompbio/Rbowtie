@@ -1,0 +1,34 @@
+context("test_helpers")
+
+test_that(".createFlags works", {
+    expect_equal(
+        .createFlags(
+            flagList=list(p=3, q=TRUE, phred33=TRUE, `no-softclip`=TRUE,
+                          secondary=FALSE, vectorArg=c("file1", "file2"))),
+        "-q --phred33 --no-softclip -p 3 --vectorArg file1,file2"
+    )
+
+    expect_error(
+        .createFlags(flagList=list(3, x=4))
+    )
+})
+
+test_that(".bowtieBin works", {
+    expect_error(
+        .bowtieBin(bin="bowtie-build", args="")
+    )
+    expect_error(
+        .bowtieBin(bin="bowtie", args="")
+    )
+    expect_equal(
+        .bowtieBin(bin="bowtie", args="-1 file1 -2 file2", execute=FALSE),
+        paste(shQuote(file.path(system.file(package="Rbowtie"), "bowtie")),
+              "-1 file1 -2 file2")
+    )
+})
+
+test_that("print usage methods work", {
+    expect_is(bowtie_build_usage(), "character")
+    expect_is(bowtie_usage(), "character")
+    expect_is(bowtie_version(), "character")
+})

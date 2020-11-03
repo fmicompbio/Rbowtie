@@ -1,11 +1,15 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.31.1
-Date: 2020-11-02
+Version: 1.31.2
+Date: 2020-11-03
 Author: Florian Hahne, Anita Lerch, Michael B Stadler
 Maintainer: Michael Stadler <michael.stadler@fmi.ch>
-Suggests: parallel, BiocStyle, knitr, rmarkdown
+Suggests: testthat,
+    parallel,
+    BiocStyle,
+    knitr,
+    rmarkdown
 SystemRequirements: GNU make
 Description: This package provides an R wrapper around the popular
         bowtie short read aligner and around SpliceMap, a de novo
@@ -14,6 +18,8 @@ Description: This package provides an R wrapper around the popular
         QuasR package instead of using Rbowtie directly.
 License: Artistic-2.0 | file LICENSE
 LazyLoad: yes
+URL: https://github.com/fmicompbio/Rbowtie
+BugReports: https://github.com/fmicompbio/Rbowtie/issues
 biocViews: Sequencing, Alignment
 Archs: x64
 VignetteBuilder: knitr
