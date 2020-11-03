@@ -73,7 +73,7 @@ jobs:
         sudo -s eval "$sysreqs"
         
     - name: Install macOS system dependencies
-      if: runner.os == "macOS"
+      if: runner.os == 'macOS'
       run: |
         brew install harfbuzz
         brew install fribidi
