@@ -2,12 +2,17 @@
 #define REFERENCE_H_
 
 #include <stdexcept>
+
+#include "btypes.h"
+#include "ds.h"
 #include "endian_swap.h"
 #include "mm.h"
+#include "ref_read.h"
+#include "sequence_io.h"
 #include "shmem.h"
+#include "sstring.h"
 #include "timer.h"
-#include "btypes.h"
-
+#include "word_io.h"
 
 /**
  * Concrete reference representation that bulk-loads the reference from
@@ -34,10 +39,9 @@ public:
 	 * Load from .3.ebwt/.4.ebwt Bowtie index files.
 	 */
 	BitPairReference(const string& in,
-	                 bool color,
 	                 bool sanity,
-	                 std::vector<string>* infiles,
-	                 std::vector<String<Dna5> >* origs,
+	                 EList<string>* infiles,
+	                 EList<BTRefString >* origs,
 	                 bool infilesSeq,
 	                 bool loadSequence, // as opposed to just records
 	                 bool useMm,
@@ -150,23 +154,12 @@ public:
 				// nPat/plen/refnames, but we also omit reference
 				// sequences that never have a stretch of more than 1
 				// unambiguous character.
-				if(unambiglen > 0 && (!color || maxlen > 1)) {
+				if(unambiglen > 0 && maxlen > 1) {
 					refApproxLens_.push_back(cumlen);
 				}
 				// More hackery to detect references that won't be
 				// in the Ebwt even though they have non-zero length
 				bool willBeInEbwt = true;
-				if(recs_[i].len > 0 && color) {
-					// Omit until we prove it should be kept
-					willBeInEbwt = false;
-					for(uint32_t j = i; j < sz; j++) {
-						if(j > i && recs_[j].first) break;
-						if(recs_[j].len >= 2) {
-							willBeInEbwt = true;
-							break;
-						}
-					}
-				}
 				if(recs_[i].len > 0 && willBeInEbwt) {
 					// Remember that this is the first record for this
 					// reference sequence (and the last record for the one
@@ -213,7 +206,7 @@ public:
 		// Store a cap entry for the end of the last reference seq
 		refRecOffs_.push_back((TIndexOffU)recs_.size());
 		refOffs_.push_back(cumsz);
-		if(unambiglen > 0 && (!color || maxlen > 1)) {
+		if(unambiglen > 0 && maxlen > 1) {
 			refApproxLens_.push_back(cumlen);
 		}
 		refLens_.push_back(cumlen);
@@ -318,8 +311,8 @@ public:
 		if(sanity_) {
 			// Compare the sequence we just read from the compact index
 			// file to the true reference sequence.
-			std::vector<seqan::String<seqan::Dna5> > *os; // for holding references
-			std::vector<seqan::String<seqan::Dna5> > osv; // for holding references
+			EList<BTRefString > *os; // for holding references
+			EList<BTRefString > osv; // for holding references
 			if(infiles != NULL) {
 				if(infilesSeq) {
 					for(size_t i = 0; i < infiles->size(); i++) {
@@ -330,10 +323,10 @@ public:
 						if((*infiles)[i].at(0) == '\\') {
 							(*infiles)[i].erase(0, 1);
 						}
-						osv.push_back(String<Dna5>((*infiles)[i]));
+						osv.push_back(BTRefString((*infiles)[i].c_str(), true));
 					}
 				} else {
-					readSequenceFiles<seqan::String<seqan::Dna5>, seqan::Fasta>(*infiles, osv);
+					readSequenceFiles(*infiles, osv);
 				}
 				os = &osv;
 			} else {
@@ -341,25 +334,6 @@ public:
 				os = origs;
 			}
 
-			// Never mind; reference is always letters, even if index
-			// and alignment run are colorspace
-
-			// If we're building a colorspace index, we need to convert
-			// osv to colors first
-//			if(color) {
-//				for(size_t i = 0; i < os->size(); i++) {
-//					size_t olen = seqan::length((*os)[i]);
-//					for(size_t j = 0; j < olen-1; j++) {
-//						int b1 = (int)(*os)[i][j];
-//						assert_geq(b1, 0); assert_leq(b1, 4);
-//						int b2 = (int)(*os)[i][j+1];
-//						assert_geq(b2, 0); assert_leq(b2, 4);
-//						(*os)[i][j] = (Dna5)dinuc2color[b1][b2];
-//						assert((b1 != 4 && b2 != 4) || (int)(*os)[i][j] == 4);
-//					}
-//					seqan::resize((*os)[i], olen-1);
-//				}
-//			}
 			// Go through the loaded reference files base-by-base and
 			// sanity check against what we get by calling getBase and
 			// getStretch
@@ -367,7 +341,7 @@ public:
 			int longestStretch = 0;
 			int curStretch = 0;
 			for(size_t i = 0; i < os->size(); i++) {
-				size_t olen = seqan::length((*os)[i]);
+				size_t olen = (*os)[i].length();
 				for(size_t j = 0; j < olen; j++) {
 					if((int)(*os)[i][j] < 4) {
 						curStretch++;
@@ -376,7 +350,7 @@ public:
 						curStretch = 0;
 					}
 				}
-				if(longestStretch == 0 || (color && longestStretch == 1)) {
+				if(longestStretch == 0) {
 					continue;
 				}
 				longestStretch = 0;
@@ -531,128 +505,132 @@ public:
 		uint64_t mid   = 0;
 		// For all records pertaining to the target reference sequence...
 		for(uint64_t i = reci; i < recf; i++) {
-			uint64_t origBufOff = bufOff;
-			assert_geq(toff, off);
-		if (firstStretch && recf > reci + 16){
-			// binary search finds smallest i s.t. toff >= cumRefOff_[i]
-			while (left < right-1) {
-				mid = left + ((right - left) >> 1);
-				if (cumRefOff_[mid] <= toff)
-					left = mid;
-				else
-					right = mid;
-			}
-			off = cumRefOff_[left];
-			bufOff = cumUnambig_[left];
-			origBufOff = bufOff;
-			i = left;
-			assert(cumRefOff_[i+1] == 0 || cumRefOff_[i+1] > toff);
-			ASSERT_ONLY(binarySearched = true);
-		}
-		off += recs_[i].off; // skip Ns at beginning of stretch
-		assert_gt(count, 0);
-		if(toff < off) {
-			size_t cpycnt = min((size_t)(off - toff), count);
-			memset(&dest[cur], 4, cpycnt);
-			count -= cpycnt;
-			toff += cpycnt;
-			cur += cpycnt;
-			if(count == 0) break;
-		}
-		assert_geq(toff, off);
-		if(toff < off + recs_[i].len) {
-			bufOff += toff - off; // move bufOff pointer forward
-		} else {
-			bufOff += recs_[i].len;
-		}
-		off += recs_[i].len;
-		assert(off == cumRefOff_[i+1] || cumRefOff_[i+1] == 0);
-		assert(!binarySearched || toff < off);
-		if(toff < off) {
-			if(firstStretch) {
-				if(toff + 8 < off && count > 8) {
-					// We already added some Ns, so we have to do
-					// a fixup at the beginning of the buffer so
-					// that we can start clobbering at cur >> 2
-					if(cur & 3) {
-						offset -= (cur & 3);
-					}
-					uint64_t curU32 = cur >> 2;
-					// Do the initial few bases
-					if(bufOff & 3) {
-						const uint64_t bufElt = (bufOff) >> 2;
-						const int64_t low2 = bufOff & 3;
-						// Lots of cache misses on the following line
-						destU32[curU32] = byteToU32_[buf_[bufElt]];
-						for(int j = 0; j < low2; j++) {
-							((char *)(&destU32[curU32]))[j] = 4;
-						}
-						curU32++;
-						offset += low2;
-						const int64_t chars = 4 - low2;
-						count -= chars;
-						bufOff += chars;
-						toff += chars;
-					}
-					assert_eq(0, bufOff & 3);
-					uint64_t bufOffU32 = bufOff >> 2;
-					uint64_t countLim = count >> 2;
-					uint64_t offLim = ((off - (toff + 4)) >> 2);
-					uint64_t lim = min(countLim, offLim);
-					// Do the fast thing for as far as possible
-					for(uint64_t j = 0; j < lim; j++) {
-						// Lots of cache misses on the following line
-						destU32[curU32] = byteToU32_[buf_[bufOffU32++]];
 #ifndef NDEBUG
-						if(dest_2 != NULL) {
-							assert_eq(dest[(curU32 << 2) + 0], dest_2[(curU32 << 2) - offset + 0]);
-							assert_eq(dest[(curU32 << 2) + 1], dest_2[(curU32 << 2) - offset + 1]);
-							assert_eq(dest[(curU32 << 2) + 2], dest_2[(curU32 << 2) - offset + 2]);
-							assert_eq(dest[(curU32 << 2) + 3], dest_2[(curU32 << 2) - offset + 3]);
-						}
+			uint64_t origBufOff = bufOff;
 #endif
-						curU32++;
-					}
-					toff += (lim << 2);
-					assert_leq(toff, off);
-					assert_leq((lim << 2), count);
-					count -= (lim << 2);
-					bufOff = bufOffU32 << 2;
-					cur = curU32 << 2;
+			assert_geq(toff, off);
+			if (firstStretch && recf > reci + 16){
+				// binary search finds smallest i s.t. toff >= cumRefOff_[i]
+				while (left < right-1) {
+					mid = left + ((right - left) >> 1);
+					if (cumRefOff_[mid] <= toff)
+						left = mid;
+					else
+						right = mid;
 				}
-				// Do the slow thing for the rest
-				for(; toff < off && count > 0; toff++) {
-					assert_lt(bufOff, bufSz_);
-					const uint64_t bufElt = (bufOff) >> 2;
-					const uint64_t shift = (bufOff & 3) << 1;
-					dest[cur++] = (buf_[bufElt] >> shift) & 3;
-					bufOff++;
-					count--;
-				}
-				firstStretch = false;
+				off = cumRefOff_[left];
+				bufOff = cumUnambig_[left];
+#ifndef NDEBUG
+				origBufOff = bufOff;
+#endif
+				i = left;
+				assert(cumRefOff_[i+1] == 0 || cumRefOff_[i+1] > toff);
+				ASSERT_ONLY(binarySearched = true);
+			}
+			off += recs_[i].off; // skip Ns at beginning of stretch
+			assert_gt(count, 0);
+			if(toff < off) {
+				size_t cpycnt = min((size_t)(off - toff), count);
+				memset(&dest[cur], 4, cpycnt);
+				count -= cpycnt;
+				toff += cpycnt;
+				cur += cpycnt;
+				if(count == 0) break;
+			}
+			assert_geq(toff, off);
+			if(toff < off + recs_[i].len) {
+				bufOff += toff - off; // move bufOff pointer forward
 			} else {
-				// Do the slow thing
-				for(; toff < off && count > 0; toff++) {
-					assert_lt(bufOff, bufSz_);
-					const uint64_t bufElt = (bufOff) >> 2;
-					const uint64_t shift = (bufOff & 3) << 1;
-					dest[cur++] = (buf_[bufElt] >> shift) & 3;
-					bufOff++;
-					count--;
+				bufOff += recs_[i].len;
+			}
+			off += recs_[i].len;
+			assert(off == cumRefOff_[i+1] || cumRefOff_[i+1] == 0);
+			assert(!binarySearched || toff < off);
+			if(toff < off) {
+				if(firstStretch) {
+					if(toff + 8 < off && count > 8) {
+						// We already added some Ns, so we have to do
+						// a fixup at the beginning of the buffer so
+						// that we can start clobbering at cur >> 2
+						if(cur & 3) {
+							offset -= (cur & 3);
+						}
+						uint64_t curU32 = cur >> 2;
+						// Do the initial few bases
+						if(bufOff & 3) {
+							const uint64_t bufElt = (bufOff) >> 2;
+							const int64_t low2 = bufOff & 3;
+							// Lots of cache misses on the following line
+							destU32[curU32] = byteToU32_[buf_[bufElt]];
+							for(int j = 0; j < low2; j++) {
+								((char *)(&destU32[curU32]))[j] = 4;
+							}
+							curU32++;
+							offset += low2;
+							const int64_t chars = 4 - low2;
+							count -= chars;
+							bufOff += chars;
+							toff += chars;
+						}
+						assert_eq(0, bufOff & 3);
+						uint64_t bufOffU32 = bufOff >> 2;
+						uint64_t countLim = count >> 2;
+						uint64_t offLim = ((off - (toff + 4)) >> 2);
+						uint64_t lim = min(countLim, offLim);
+						// Do the fast thing for as far as possible
+						for(uint64_t j = 0; j < lim; j++) {
+							// Lots of cache misses on the following line
+							destU32[curU32] = byteToU32_[buf_[bufOffU32++]];
+#ifndef NDEBUG
+							if(dest_2 != NULL) {
+								assert_eq(dest[(curU32 << 2) + 0], dest_2[(curU32 << 2) - offset + 0]);
+								assert_eq(dest[(curU32 << 2) + 1], dest_2[(curU32 << 2) - offset + 1]);
+								assert_eq(dest[(curU32 << 2) + 2], dest_2[(curU32 << 2) - offset + 2]);
+								assert_eq(dest[(curU32 << 2) + 3], dest_2[(curU32 << 2) - offset + 3]);
+							}
+#endif
+							curU32++;
+						}
+						toff += (lim << 2);
+						assert_leq(toff, off);
+						assert_leq((lim << 2), count);
+						count -= (lim << 2);
+						bufOff = bufOffU32 << 2;
+						cur = curU32 << 2;
+					}
+					// Do the slow thing for the rest
+					for(; toff < off && count > 0; toff++) {
+						assert_lt(bufOff, bufSz_);
+						const uint64_t bufElt = (bufOff) >> 2;
+						const uint64_t shift = (bufOff & 3) << 1;
+						dest[cur++] = (buf_[bufElt] >> shift) & 3;
+						bufOff++;
+						count--;
+					}
+					firstStretch = false;
+				} else {
+					// Do the slow thing
+					for(; toff < off && count > 0; toff++) {
+						assert_lt(bufOff, bufSz_);
+						const uint64_t bufElt = (bufOff) >> 2;
+						const uint64_t shift = (bufOff & 3) << 1;
+						dest[cur++] = (buf_[bufElt] >> shift) & 3;
+						bufOff++;
+						count--;
+					}
 				}
 			}
+			if(count == 0) break;
+			assert_eq(recs_[i].len, bufOff - origBufOff);
+			assert_geq(toff, off);
+		} // end for loop over records
+		// In any chars are left after scanning all the records,
+		// they must be ambiguous
+		while(count > 0) {
+			count--;
+			dest[cur++] = 4;
 		}
-		if(count == 0) break;
-		assert_eq(recs_[i].len, bufOff - origBufOff);
-		assert_geq(toff, off);
-	} // end for loop over records
-	// In any chars are left after scanning all the records,
-	// they must be ambiguous
-	while(count > 0) {
-		count--;
-		dest[cur++] = 4;
-	}
-	assert_eq(0, count);
+		assert_eq(0, count);
 #ifndef NDEBUG
 		delete[] destU32_2;
 #endif
@@ -713,22 +691,22 @@ public:
 	/**
 	 * Return constant reference to the RefRecord list.
 	 */
-	const std::vector<RefRecord>& refRecords() const { return recs_; }
+	const EList<RefRecord>& refRecords() const { return recs_; }
 
 protected:
 
 	uint32_t byteToU32_[256];
 
-	std::vector<RefRecord> recs_;       /// records describing unambiguous stretches
-	std::vector<uint32_t>  refApproxLens_; /// approx lens of ref seqs (excludes trailing ambig chars)
-	std::vector<TIndexOffU>  refLens_;    /// approx lens of ref seqs (excludes trailing ambig chars)
-	std::vector<TIndexOffU>  refOffs_;    /// buf_ begin offsets per ref seq
-	std::vector<TIndexOffU>  cumUnambig_;    /// # unambig ref chars up to each record
-	std::vector<TIndexOffU>  cumRefOff_;    /// # ref chars up to each record
-	std::vector<TIndexOffU>  refRecOffs_; /// record begin/end offsets per ref seq
-	std::vector<uint32_t>  expandIdx_; /// map from small idxs (e.g. w/r/t plen) to large ones (w/r/t refnames)
-	std::vector<uint32_t>  shrinkIdx_; /// map from large idxs to small
-	std::vector<bool>      isGaps_;    /// ref i is all gaps?
+	EList<RefRecord> recs_;       /// records describing unambiguous stretches
+	EList<uint32_t>  refApproxLens_; /// approx lens of ref seqs (excludes trailing ambig chars)
+	EList<TIndexOffU>  refLens_;    /// approx lens of ref seqs (excludes trailing ambig chars)
+	EList<TIndexOffU>  refOffs_;    /// buf_ begin offsets per ref seq
+	EList<TIndexOffU>  cumUnambig_;    /// # unambig ref chars up to each record
+	EList<TIndexOffU>  cumRefOff_;    /// # ref chars up to each record
+	EList<TIndexOffU>  refRecOffs_; /// record begin/end offsets per ref seq
+	EList<uint32_t>  expandIdx_; /// map from small idxs (e.g. w/r/t plen) to large ones (w/r/t refnames)
+	EList<uint32_t>  shrinkIdx_; /// map from large idxs to small
+	EList<bool>      isGaps_;    /// ref i is all gaps?
 	uint8_t *buf_;      /// the whole reference as a big bitpacked byte array
 	uint8_t *sanityBuf_;/// for sanity-checking buf_
 	TIndexOffU bufSz_;    /// size of buf_

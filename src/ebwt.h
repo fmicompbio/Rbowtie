@@ -1,49 +1,47 @@
 #ifndef EBWT_H_
 #define EBWT_H_
 
-#include <stdint.h>
-#include <string.h>
-#include <algorithm>
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <set>
-#include <sstream>
-#include <fcntl.h>
-#include <errno.h>
-#include <stdexcept>
-#include <seqan/sequence.h>
-#include <seqan/index.h>
-#include <sys/stat.h>
 #ifdef BOWTIE_MM
 #include <sys/mman.h>
 #include <sys/shm.h>
 #endif
-#include "auto_array.h"
-#include "shmem.h"
+
+#include <algorithm>
+#include <errno.h>
+#include <fcntl.h>
+#include <fstream>
+#include <iostream>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <stdint.h>
+#include <string.h>
+#include <sys/stat.h>
+
 #include "alphabet.h"
 #include "assert_helpers.h"
 #include "bitpack.h"
-#include "blockwise_sa.h"
-#include "endian_swap.h"
-#include "word_io.h"
-#include "random_source.h"
-#include "hit.h"
-#include "ref_read.h"
-#include "threading.h"
 #include "bitset.h"
-#include "str_util.h"
+#include "blockwise_sa.h"
+#include "ds.h"
+#include "endian_swap.h"
+#include "hit.h"
 #include "mm.h"
-#include "timer.h"
-#include "color_dec.h"
+#include "random_source.h"
+#include "ref_read.h"
 #include "reference.h"
+#include "shmem.h"
+#include "sstring.h"
+#include "str_util.h"
+#include "threading.h"
+#include "timer.h"
+#include "word_io.h"
 
-#ifdef POPCNT_CAPABILITY 
-    #include "processor_support.h" 
-#endif 
+#ifdef POPCNT_CAPABILITY
+    #include "processor_support.h"
+#endif
 
 using namespace std;
-using namespace seqan;
 
 #ifndef PREFETCH_LOCALITY
 // No locality by default
@@ -125,23 +123,21 @@ public:
 	           int32_t offRate,
 	           int32_t isaRate,
 	           int32_t ftabChars,
-	           bool color,
 	           bool entireReverse,
 	           bool isBt2Index)
 	{
-		init(len, lineRate, linesPerSide, offRate, isaRate, ftabChars, color, entireReverse, isBt2Index);
+		init(len, lineRate, linesPerSide, offRate, isaRate, ftabChars, entireReverse, isBt2Index);
 	}
 
 	EbwtParams(const EbwtParams& eh) {
 		init(eh._len, eh._lineRate, eh._linesPerSide, eh._offRate,
-		     eh._isaRate, eh._ftabChars, eh._color, eh._entireReverse, eh._isBt2Index);
+		     eh._isaRate, eh._ftabChars, eh._entireReverse, eh._isBt2Index);
 	}
 
 	void init(TIndexOffU len, int32_t lineRate, int32_t linesPerSide,
 	          int32_t offRate, int32_t isaRate, int32_t ftabChars,
-	          bool color, bool entireReverse, bool isBt2Index)
+	          bool entireReverse, bool isBt2Index)
 	{
-		_color = color;
 		_isBt2Index = isBt2Index;
 		_entireReverse = entireReverse;
 		_len = len;
@@ -215,7 +211,6 @@ public:
 	TIndexOffU numLines() const      { return _numLines; }
 	TIndexOffU ebwtTotLen() const    { return _ebwtTotLen; }
 	TIndexOffU ebwtTotSz() const     { return _ebwtTotSz; }
-	bool color() const             { return _color; }
 	bool entireReverse() const     { return _entireReverse; }
 	bool isBt2Index() const { return _isBt2Index; }
 
@@ -320,7 +315,6 @@ public:
 	TIndexOffU _numLines;
 	TIndexOffU _ebwtTotLen;
 	TIndexOffU _ebwtTotSz;
-	bool     _color;
 	bool     _entireReverse;
 	bool     _isBt2Index;
 };
@@ -349,7 +343,7 @@ static inline int64_t fileSize(const char* name) {
 
 // Forward declarations for Ebwt class
 struct SideLocus;
-template<typename TStr> class EbwtSearchParams;
+class EbwtSearchParams;
 
 /**
  * Extended Burrows-Wheeler transform data.
@@ -360,11 +354,8 @@ template<typename TStr> class EbwtSearchParams;
  * newly-created Ebwt to answer queries, they must first call
  * loadIntoMemory().
  */
-template <typename TStr>
 class Ebwt {
 public:
-	typedef typename Value<TStr>::Type TAlphabet;
-
 	#define Ebwt_INITS \
 	    _toBigEndian(currentlyBigEndian()), \
 	    _overrideOffRate(__overrideOffRate), \
@@ -408,7 +399,6 @@ public:
 
 	/// Construct an Ebwt from the given input file
 	Ebwt(const string& in,
-	     int color,
 	     int needEntireReverse,
 	     bool __fw,
 	     int32_t __overrideOffRate = -1,
@@ -426,16 +416,16 @@ public:
 	     Ebwt_STAT_INITS
 	{
 		assert(!useMm || !useShmem);
-#ifdef POPCNT_CAPABILITY 
-        ProcessorSupport ps; 
-        _usePOPCNTinstruction = ps.POPCNTenabled(); 
-#endif 
+#ifdef POPCNT_CAPABILITY
+        ProcessorSupport ps;
+        _usePOPCNTinstruction = ps.POPCNTenabled();
+#endif
+		_packed = false;
 		_useMm = useMm;
 		useShmem_ = useShmem;
 		_in1Str = in + ".1." + gEbwt_ext;
 		_in2Str = in + ".2." + gEbwt_ext;
 		readIntoMemory(
-			color,         // expect colorspace reference?
 			__fw ? -1 : needEntireReverse, // need REF_READ_REVERSE
 			true,          // stop after loading the header portion?
 			&_eh,          // params structure to fill in
@@ -460,7 +450,9 @@ public:
 	/// vector, optionally using a blockwise suffix sorter with the
 	/// given 'bmax' and 'dcv' parameters.  The string vector is
 	/// ultimately joined and the joined string is passed to buildToDisk().
-	Ebwt(int color,
+	template<typename TStr>
+	Ebwt(TStr exampleStr,
+	     bool packed,
 	     int32_t lineRate,
 	     int32_t linesPerSide,
 	     int32_t offRate,
@@ -474,9 +466,9 @@ public:
 	     TIndexOffU bmaxSqrtMult,
 	     TIndexOffU bmaxDivN,
 	     int dcv,
-	     vector<FileBuf*>& is,
-	     vector<RefRecord>& szs,
-	     vector<uint32_t>& plens,
+	     EList<FileBuf*>& is,
+	     EList<RefRecord>& szs,
+	     EList<uint32_t>& plens,
 	     TIndexOffU sztot,
 	     const RefReadInParams& refparams,
 	     uint32_t seed,
@@ -494,14 +486,14 @@ public:
 	         offRate,
 	         isaRate,
 	         ftabChars,
-	         color,
 	         refparams.reverse == REF_READ_REVERSE,
-	         false /* is this a bt2 index? */)
+	         isBt2Index)
 	{
-#ifdef POPCNT_CAPABILITY 
-        ProcessorSupport ps; 
-        _usePOPCNTinstruction = ps.POPCNTenabled(); 
-#endif 
+		_packed = packed;
+	 #ifdef POPCNT_CAPABILITY
+        ProcessorSupport ps;
+        _usePOPCNTinstruction = ps.POPCNTenabled();
+#endif
 		_in1Str = file + ".1." + gEbwt_ext;
 		_in2Str = file + ".2." + gEbwt_ext;
 		// Open output files
@@ -520,7 +512,7 @@ public:
 			throw 1;
 		}
 		// Build
-		initFromVector(
+		initFromVector<TStr>(
 			is,
 			szs,
 			plens,
@@ -566,7 +558,6 @@ public:
 			VMSG_NL("Sanity-checking Ebwt");
 			assert(!isInMemory());
 			readIntoMemory(
-				color,
 				__fw ? -1 : refparams.reverse == REF_READ_REVERSE,
 				false,
 				NULL,
@@ -580,12 +571,14 @@ public:
 		VMSG_NL("Returning from Ebwt constructor");
 	}
 
-	bool isPacked();
+	bool isPacked() {
+		return _packed;
+	};
 
 	/**
 	 * Write the rstarts array given the szs array for the reference.
 	 */
-	void szsToDisk(const vector<RefRecord>& szs, ostream& os, int reverse) {
+	void szsToDisk(const EList<RefRecord>& szs, ostream& os, int reverse) {
 		TIndexOffU seq = 0;
 		TIndexOffU off = 0;
 		TIndexOffU totlen = 0;
@@ -626,10 +619,11 @@ public:
 	 * suffix-array producer can then be used to obtain chunks of the
 	 * joined string's suffix array.
 	 */
+	template<typename TStr>
 	void initFromVector(
-		vector<FileBuf*>& is,
-		vector<RefRecord>& szs,
-		vector<uint32_t>& plens,
+		EList<FileBuf*>& is,
+		EList<RefRecord>& szs,
+		EList<uint32_t>& plens,
 		TIndexOffU sztot,
 		const RefReadInParams& refparams,
 		ofstream& out1,
@@ -653,7 +647,7 @@ public:
 		writeFromMemory(true, out1, out2);
 		try {
 			VMSG_NL("Reserving space for joined string");
-			seqan::reserve(s, jlen, Exact());
+			s.resize(jlen);
 			VMSG_NL("Joining reference sequences");
 			if(refparams.reverse == REF_READ_REVERSE) {
 				{
@@ -661,8 +655,8 @@ public:
 					joinToDisk(is, szs, plens, sztot, refparams, s, out1, out2, seed);
 				} {
 					Timer timer(cout, "  Time to reverse reference sequence: ", _verbose);
-					vector<RefRecord> tmp;
-					reverseInPlace(s);
+					EList<RefRecord> tmp;
+					s.reverse();
 					reverseRefRecords(szs, tmp, false, false);
 					szsToDisk(tmp, out1, refparams.reverse);
 				}
@@ -702,7 +696,7 @@ public:
 			throw 1;
 		}
 		// Succesfully obtained joined reference string
-		assert_geq(length(s), jlen);
+		assert_geq(s.length(), jlen);
 		if(bmax != OFF_MASK) {
 			VMSG_NL("bmax according to bmax setting: " << bmax);
 		}
@@ -715,7 +709,7 @@ public:
 			VMSG_NL("bmax according to bmaxDivN setting: " << bmax);
 		}
 		else {
-			bmax = (TIndexOffU)sqrt(length(s));
+			bmax = (TIndexOffU)sqrt(s.length());
 			VMSG_NL("bmax defaulted to: " << bmax);
 		}
 		int iter = 0;
@@ -782,7 +776,7 @@ public:
 				VMSG_NL("Constructing suffix-array element generator");
 				KarkkainenBlockwiseSA<TStr> bsa(s, bmax, nthreads, dcv, seed, _sanity, _passMemExc, _verbose, outfile);
 				assert(bsa.suffixItrIsReset());
-				assert_eq(bsa.size(), length(s)+1);
+				assert_eq(bsa.size(), s.length()+1);
 				VMSG_NL("Converting suffix-array elements to index image");
 				buildToDisk(bsa, s, out1, out2);
 				out1.flush(); out2.flush();
@@ -827,7 +821,7 @@ public:
 	 * fragments correspond to input sequences - it just cares about
 	 * the lengths of the fragments.
 	 */
-	TIndexOffU joinedLen(vector<RefRecord>& szs) {
+	TIndexOffU joinedLen(EList<RefRecord>& szs) {
 		TIndexOffU ret = 0;
 		for(unsigned int i = 0; i < szs.size(); i++) {
 			ret += szs[i].len;
@@ -840,22 +834,20 @@ public:
 		// Only free buffers if we're *not* using memory-mapped files
 		if(!_useMm) {
 			// Delete everything that was allocated in read(false, ...)
-			if(_fchr    != NULL) delete[] _fchr;    _fchr    = NULL;
-			if(_ftab    != NULL) delete[] _ftab;    _ftab    = NULL;
-			if(_eftab   != NULL) delete[] _eftab;   _eftab   = NULL;
-			if(_offs != NULL && !useShmem_) {
-				delete[] _offs; _offs = NULL;
-			} else if(_offs != NULL && useShmem_) {
+			if(_fchr    != NULL) delete[] _fchr;
+			if(_ftab    != NULL) delete[] _ftab;
+			if(_eftab   != NULL) delete[] _eftab;
+			if(_offs != NULL && !useShmem_)
+				delete[] _offs;
+			else if(_offs != NULL && useShmem_)
 				FREE_SHARED(_offs);
-			}
-			if(_isa     != NULL) delete[] _isa;     _isa     = NULL;
-			if(_plen    != NULL) delete[] _plen;    _plen    = NULL;
-			if(_rstarts != NULL) delete[] _rstarts; _rstarts = NULL;
-			if(_ebwt != NULL && !useShmem_) {
-				delete[] _ebwt; _ebwt = NULL;
-			} else if(_ebwt != NULL && useShmem_) {
+			if(_isa     != NULL) delete[] _isa;
+			if(_plen    != NULL) delete[] _plen;
+			if(_rstarts != NULL) delete[] _rstarts;
+			if(_ebwt != NULL && !useShmem_)
+				delete[] _ebwt;
+			else if(_ebwt != NULL && useShmem_)
 				FREE_SHARED(_ebwt);
-			}
 		}
 		if (_in1 != NULL) fclose(_in1);
 		if (_in2 != NULL) fclose(_in2);
@@ -887,11 +879,11 @@ public:
 	bool        toBe() const         { return _toBigEndian; }
 	bool        verbose() const      { return _verbose; }
 	bool        sanityCheck() const  { return _sanity; }
-	vector<string>& refnames()       { return _refnames; }
+	EList<string>& refnames()       { return _refnames; }
 	bool        fw() const           { return _fw; }
-#ifdef POPCNT_CAPABILITY 
-    bool _usePOPCNTinstruction; 
-#endif 
+#ifdef POPCNT_CAPABILITY
+    bool _usePOPCNTinstruction;
+#endif
 
 	/// Return true iff the Ebwt is currently in memory
 	bool isInMemory() const {
@@ -928,13 +920,11 @@ public:
 	 * _in2 streams.
 	 */
 	void loadIntoMemory(
-		int color,
 		int needEntireReverse,
 		bool loadNames,
 		bool verbose)
 	{
 		readIntoMemory(
-			color,      // expect index to be colorspace?
 			needEntireReverse, // require reverse index to be concatenated reference reversed
 			false,      // stop after loading the header portion?
 			NULL,       // params
@@ -1057,7 +1047,7 @@ public:
 		assert_lt(_zEbwtByteOff, eh._sideBwtSz);
 		_zEbwtBpOff = sideCharOff & 3;
 		assert_lt(_zEbwtBpOff, 4);
-		if((sideNum & 1) == 0) {
+		if(!eh._isBt2Index && (sideNum & 1) == 0) {
 			// This is an even (backward) side
 			_zEbwtByteOff = eh._sideBwtSz - _zEbwtByteOff - 1;
 			_zEbwtBpOff = 3 - _zEbwtBpOff;
@@ -1130,13 +1120,13 @@ public:
 	}
 
 	// Building
-	static TStr join(vector<TStr>& l, uint32_t seed);
-	static TStr join(vector<FileBuf*>& l, vector<RefRecord>& szs, TIndexOffU sztot, const RefReadInParams& refparams, uint32_t seed);
-	void joinToDisk(vector<FileBuf*>& l, vector<RefRecord>& szs, vector<uint32_t>& plens, TIndexOffU sztot, const RefReadInParams& refparams, TStr& ret, ostream& out1, ostream& out2, uint32_t seed = 0);
-	void buildToDisk(InorderBlockwiseSA<TStr>& sa, const TStr& s, ostream& out1, ostream& out2);
+	template <typename TStr> static TStr join(EList<TStr>& l, uint32_t seed);
+	template <typename TStr> static TStr join(EList<FileBuf*>& l, EList<RefRecord>& szs, TIndexOffU sztot, const RefReadInParams& refparams, uint32_t seed);
+	template <typename TStr> void joinToDisk(EList<FileBuf*>& l, EList<RefRecord>& szs, EList<uint32_t>& plens, TIndexOffU sztot, const RefReadInParams& refparams, TStr& ret, ostream& out1, ostream& out2, uint32_t seed = 0);
+	template <typename TStr> void buildToDisk(InorderBlockwiseSA<TStr>& sa, const TStr& s, ostream& out1, ostream& out2);
 
 	// I/O
-	void readIntoMemory(int color, int needEntireReverse, bool justHeader, EbwtParams *params, bool mmSweep, bool loadNames, bool startVerbose);
+	void readIntoMemory(int needEntireReverse, bool justHeader, EbwtParams *params, bool mmSweep, bool loadNames, bool startVerbose);
 	void writeFromMemory(bool justHeader, ostream& out1, ostream& out2) const;
 	void writeFromMemory(bool justHeader, const string& out1, const string& out2) const;
 
@@ -1145,14 +1135,13 @@ public:
 	void printRangeBw(uint32_t begin, uint32_t end) const;
 	void sanityCheckUpToSide(TIndexOff upToSide) const;
 	void sanityCheckAll(int reverse) const;
-	void restore(TStr& s) const;
-	void checkOrigs(const vector<String<Dna5> >& os, bool color, bool mirror) const;
+	void restore(BTRefString& s) const;
+	void checkOrigs(const EList<BTRefString >& os, bool mirror) const;
 
 	// Searching and reporting
 	void joinedToTextOff(TIndexOffU qlen, TIndexOffU off, TIndexOffU& tidx, TIndexOffU& textoff, TIndexOffU& tlen) const;
-	inline bool report(const String<Dna5>& query, String<char>* quals, String<char>* name, bool color, char primer, char trimc, bool colExEnds, int snpPhred, const BitPairReference* ref, const std::vector<TIndexOffU>& mmui32, const std::vector<uint8_t>& refcs, size_t numMms, TIndexOffU off, TIndexOffU top, TIndexOffU bot, uint32_t qlen, int stratum, uint16_t cost, uint32_t patid, uint32_t seed, const EbwtSearchParams<TStr>& params) const;
-	inline bool reportChaseOne(const String<Dna5>& query, String<char>* quals, String<char>* name, bool color, char primer, char trimc, bool colExEnds, int snpPhred, const BitPairReference* ref, const std::vector<TIndexOffU>& mmui32, const std::vector<uint8_t>& refcs, size_t numMms, TIndexOffU i, TIndexOffU top, TIndexOffU bot, uint32_t qlen, int stratum, uint16_t cost, uint32_t patid, uint32_t seed, const EbwtSearchParams<TStr>& params, SideLocus *l = NULL) const;
-	inline bool reportReconstruct(const String<Dna5>& query, String<char>* quals, String<char>* name, String<Dna5>& lbuf, String<Dna5>& rbuf, const TIndexOffU *mmui32, const char* refcs, size_t numMms, TIndexOffU i, TIndexOffU top, TIndexOffU bot, uint32_t qlen, int stratum, const EbwtSearchParams<TStr>& params, SideLocus *l = NULL) const;
+	inline bool report(const BTDnaString& query, BTString* quals, BTString* name, const EList<TIndexOffU>& mmui32, const EList<uint8_t>& refcs, size_t numMms, TIndexOffU off, TIndexOffU top, TIndexOffU bot, uint32_t qlen, int stratum, uint16_t cost, uint32_t patid, uint32_t seed, const EbwtSearchParams& params) const;
+	inline bool reportChaseOne(const BTDnaString& query, BTString* quals, BTString* name, const EList<TIndexOffU>& mmui32, const EList<uint8_t>& refcs, size_t numMms, TIndexOffU i, TIndexOffU top, TIndexOffU bot, uint32_t qlen, int stratum, uint16_t cost, uint32_t patid, uint32_t seed, const EbwtSearchParams& params, SideLocus *l = NULL) const;
 	inline int rowL(const SideLocus& l) const;
 	inline TIndexOffU countUpTo(const SideLocus& l, int c) const;
 	inline void countUpToEx(const SideLocus& l, TIndexOffU* pairs) const;
@@ -1171,7 +1160,7 @@ public:
 	/// Check that in-memory Ebwt is internally consistent with respect
 	/// to given EbwtParams; assert if not
 	bool inMemoryRepOk(const EbwtParams& eh) const {
-		assert_leq(ValueSize<TAlphabet>::VALUE, 4);
+		// assert_leq(ValueSize<TAlphabet>::VALUE, 4);
 		assert_geq(_zEbwtBpOff, 0);
 		assert_lt(_zEbwtBpOff, 4);
 		assert_lt(_zEbwtByteOff, eh._ebwtTotSz);
@@ -1238,12 +1227,13 @@ public:
 	uint8_t*   _ebwt;
 	bool       _useMm;        /// use memory-mapped files to hold the index
 	bool       useShmem_;     /// use shared memory to hold large parts of the index
-	vector<string> _refnames; /// names of the reference sequences
+	EList<string> _refnames; /// names of the reference sequences
 	char *mmFile1_;
 	char *mmFile2_;
 	EbwtParams _eh;
+	bool _packed;
 
-#ifdef BOWTIE_64BIT_INDEX
+	#ifdef BOWTIE_64BIT_INDEX
 	static const int      default_lineRate = 7;
 #else
 	static const int      default_lineRate = 6;
@@ -1271,27 +1261,14 @@ private:
 	}
 };
 
-/// Specialization for packed Ebwts - return true
-template<>
-bool Ebwt<String<Dna, Packed<> > >::isPacked() {
-	return true;
-}
-
-/// By default, Ebwts are not packed
-template<typename TStr>
-bool Ebwt<TStr>::isPacked() {
-	return false;
-}
-
 /**
  * Structure encapsulating search parameters, such as whether and how
  * to backtrack and how to deal with multiple equally-good hits.
  */
-template<typename TStr>
 class EbwtSearchParams {
 public:
 	EbwtSearchParams(HitSinkPerThread& sink,
-	                 const vector<String<Dna5> >& texts,
+	                 const EList<BTRefString >& texts,
 	                 bool fw = true,
 	                 bool ebwtFw = true) :
 		_sink(sink),
@@ -1307,18 +1284,12 @@ public:
 	/**
 	 * Report a hit.  Returns true iff caller can call off the search.
 	 */
-	bool reportHit(const String<Dna5>& query, // read sequence
-	               String<char>* quals, // read quality values
-	               String<char>* name,  // read name
-	               bool color,          // true -> read is colorspace
-	               char primer,         // primer base trimmed from beginning
-	               char trimc,          // first color trimmed from beginning
-	               bool colExEnds,      // true -> exclude nucleotides at extreme ends after decoding
-	               int snpPhred,        // penalty for a SNP
-	               const BitPairReference* ref, // reference (= NULL if not necessary)
+	bool reportHit(const BTDnaString& query, // read sequence
+	               BTString* quals, // read quality values
+	               BTString* name,  // read name
 	               bool ebwtFw,         // whether index is forward (true) or mirror (false)
-	               const std::vector<TIndexOffU>& mmui32, // mismatch list
-	               const std::vector<uint8_t>& refcs,  // reference characters
+	               const EList<TIndexOffU>& mmui32, // mismatch list
+	               const EList<uint8_t>& refcs,  // reference characters
 	               size_t numMms,      // # mismatches
 	               UPair h,          // ref coords
 	               UPair mh,         // mate's ref coords
@@ -1344,7 +1315,6 @@ public:
 #endif
 		// If ebwtFw is true, then 'query' and 'quals' are reversed
 		// If _fw is false, then 'query' and 'quals' are reverse complemented
-		assert(!color || ref != NULL);
 		assert(quals != NULL);
 		assert(name != NULL);
 		assert_eq(mmui32.size(), refcs.size());
@@ -1358,146 +1328,23 @@ public:
 		if(!ebwtFw) {
 			// Re-reverse the pattern and the quals back to how they
 			// appeared in the read file
-			::reverseInPlace(hit.patSeq);
-			::reverseInPlace(hit.quals);
+			hit.patSeq.reverse();
+			hit.quals.reverse();
 		}
-		if(color) {
-			hit.colSeq = hit.patSeq;
-			hit.colQuals = hit.quals;
-			hit.crefcs.resize(qlen, 0);
-			// Turn the mmui32 and refcs arrays into the mm FixedBitset and
-			// the refc vector
-			for(size_t i = 0; i < numMms; i++) {
-				if (ebwtFw != _fw) {
-					// The 3' end is on the left but the mm vector encodes
-					// mismatches w/r/t the 5' end, so we flip
-					uint32_t off = qlen - mmui32[i] - 1;
-					hit.cmms.set(off);
-					hit.crefcs[off] = refcs[i];
-				} else {
-					hit.cmms.set(mmui32[i]);
-					hit.crefcs[i] = refcs[i];
-				}
-			}
-			assert(ref != NULL);
-			char read[1024];
-			uint32_t rfbuf[(1024+16)/4];
-			ASSERT_ONLY(char rfbuf2[1024]);
-			char qual[1024];
-			char ns[1024];
-			char cmm[1024];
-			char nmm[1024];
-			int cmms = 0;
-			int nmms = 0;
-			// TODO: account for indels when calculating these bounds
-			size_t readi = 0;
-			size_t readf = seqan::length(hit.patSeq);
-			size_t refi = 0;
-			size_t reff = readf + 1;
-			bool maqRound = false;
-			for(size_t i = 0; i < qlen + 1; i++) {
-				if(i < qlen) {
-					read[i] = (int)hit.patSeq[i];
-					qual[i] = mmPenalty(maqRound, phredCharToPhredQual(hit.quals[i]));
-				}
-				ASSERT_ONLY(rfbuf2[i] = ref->getBase(h.first, h.second + i));
-			}
-			int offset = ref->getStretch(rfbuf, h.first, h.second, qlen + 1);
-			char *rf = (char*)rfbuf + offset;
-			for(size_t i = 0; i < qlen + 1; i++) {
-				assert_eq(rf[i], rfbuf2[i]);
-				rf[i] = (1 << rf[i]);
-			}
-			decodeHit(
-				read,  // ASCII colors, '0', '1', '2', '3', '.'
-				qual,  // ASCII quals, Phred+33 encoded
-				readi, // offset of first character within 'read' to consider
-				readf, // offset of last char (exclusive) in 'read' to consider
-				rf,    // reference sequence, as masks
-				refi, // offset of first character within 'ref' to consider
-				reff, // offset of last char (exclusive) in 'ref' to consider
-				snpPhred, // penalty incurred by a SNP
-				ns,  // decoded nucleotides are appended here
-				cmm, // where the color mismatches are in the string
-				nmm, // where nucleotide mismatches are in the string
-				cmms, // number of color mismatches
-				nmms);// number of nucleotide mismatches
-			size_t nqlen = qlen + (colExEnds ? -1 : 1);
-			seqan::resize(hit.patSeq, nqlen);
-			seqan::resize(hit.quals, nqlen);
-			hit.refcs.resize(nqlen);
-			size_t lo = colExEnds ? 1 : 0;
-			size_t hi = colExEnds ? qlen : qlen+1;
-			size_t destpos = 0;
-			for(size_t i = lo; i < hi; i++, destpos++) {
-				// Set sequence character
-				assert_leq(ns[i], 4);
-				assert_geq(ns[i], 0);
-				hit.patSeq[destpos] = (Dna5)(int)ns[i];
-				// Set initial quality
-				hit.quals[destpos] = '!';
-				// Color mismatches penalize quality
-				if(i > 0) {
-					if(cmm[i-1] == 'M') {
-						if((int)hit.quals[destpos] + (int)qual[i-1] > 126) {
-							hit.quals[destpos] = 126;
-						} else {
-							hit.quals[destpos] += qual[i-1];
-						}
-					} else if((int)hit.colSeq[i-1] != 4) {
-						hit.quals[destpos] -= qual[i-1];
-					}
-				}
-				if(i < qlen) {
-					if(cmm[i] == 'M') {
-						if((int)hit.quals[destpos] + (int)qual[i] > 126) {
-							hit.quals[destpos] = 126;
-						} else {
-							hit.quals[destpos] += qual[i];
-						}
-					} else if((int)hit.patSeq[i] != 4) {
-						hit.quals[destpos] -= qual[i];
-					}
-				}
-				if(hit.quals[destpos] < '!') {
-					hit.quals[destpos] = '!';
-				}
-				if(nmm[i] != 'M') {
-					uint32_t off = (uint32_t)i - (colExEnds? 1:0);
-					if(!_fw) off = (uint32_t)nqlen - off - 1;
-					assert_lt(off, nqlen);
-					hit.mms.set(off);
-					hit.refcs[off] = "ACGT"[ref->getBase(h.first, h.second+i)];
-				}
-			}
-			if(colExEnds) {
-				// Extreme bases have been removed; that makes the
-				// nucleotide alignment one character shorter than the
-				// color alignment
-				qlen--; mlen--;
-				// It also shifts the alignment's offset up by 1
-				h.second++;
+		// Turn the mmui32 and refcs arrays into the mm FixedBitset and
+		// the refc vector
+		hit.refcs.resize(qlen);
+		hit.refcs.fillZero();
+		for(size_t i = 0; i < numMms; i++) {
+			if (ebwtFw != _fw) {
+				// The 3' end is on the left but the mm vector encodes
+				// mismatches w/r/t the 5' end, so we flip
+				uint32_t off = qlen - mmui32[i] - 1;
+				hit.mms.set(off);
+				hit.refcs[off] = refcs[i];
 			} else {
-				// Extreme bases are included; that makes the
-				// nucleotide alignment one character longer than the
-				// color alignment
-				qlen++; mlen++;
-			}
-		} else {
-			// Turn the mmui32 and refcs arrays into the mm FixedBitset and
-			// the refc vector
-			hit.refcs.resize(qlen, 0);
-			for(size_t i = 0; i < numMms; i++) {
-				if (ebwtFw != _fw) {
-					// The 3' end is on the left but the mm vector encodes
-					// mismatches w/r/t the 5' end, so we flip
-					uint32_t off = qlen - mmui32[i] - 1;
-					hit.mms.set(off);
-					hit.refcs[off] = refcs[i];
-				} else {
-					hit.mms.set(mmui32[i]);
-					hit.refcs[mmui32[i]] = refcs[i];
-				}
+				hit.mms.set(mmui32[i]);
+				hit.refcs[mmui32[i]] = refcs[i];
 			}
 		}
 		// Check the hit against the original text, if it's available
@@ -1508,7 +1355,7 @@ public:
 			// possible.  If indels are possible, then we either need
 			// the caller to provide information about indel locations,
 			// or we need to extend this to a more complicated check.
-			assert_leq(h.second + qlen, length(_texts[h.first]));
+			assert_leq(h.second + qlen, _texts[h.first].length());
 			for(size_t i = 0; i < qlen; i++) {
 				assert_neq(4, (int)_texts[h.first][h.second + i]);
 				// Forward pattern appears at h
@@ -1551,16 +1398,13 @@ public:
 		hit.mlen = mlen;
 		hit.oms = oms;
 		hit.mate = mate;
-		hit.color = color;
-		hit.primer = primer;
-		hit.trimc = trimc;
 		hit.seed = seed;
 		assert(hit.repOk());
 		return sink().reportHit(hit, stratum);
 	}
 private:
 	HitSinkPerThread& _sink;
-	const vector<String<Dna5> >& _texts; // original texts, if available (if not
+	const EList<BTRefString >& _texts; // original texts, if available (if not
 	                            // available, _texts.size() == 0)
 	uint32_t _patid;      // id of current read
 	bool _fw;             // current read is forward-oriented
@@ -1690,8 +1534,7 @@ struct SideLocus {
  * of a forward side, print the characters at those positions along
  * with a summary occ[] array.
  */
-template<typename TStr>
-void Ebwt<TStr>::printRangeFw(uint32_t begin, uint32_t end) const {
+void Ebwt::printRangeFw(uint32_t begin, uint32_t end) const {
 	assert(isInMemory());
 	uint32_t occ[] = {0, 0, 0, 0};
 	assert_gt(end, begin);
@@ -1713,8 +1556,7 @@ void Ebwt<TStr>::printRangeFw(uint32_t begin, uint32_t end) const {
  * of a backward side, print the characters at those positions along
  * with a summary occ[] array.
  */
-template<typename TStr> /* check - update */
-void Ebwt<TStr>::printRangeBw(uint32_t begin, uint32_t end) const {
+void Ebwt::printRangeBw(uint32_t begin, uint32_t end) const {
 	assert(isInMemory());
 	uint32_t occ[] = {0, 0, 0, 0};
 	assert_gt(end, begin);
@@ -1737,8 +1579,7 @@ void Ebwt<TStr>::printRangeBw(uint32_t begin, uint32_t end) const {
  * including) the given side index by re-counting the chars and
  * comparing against the embedded occ[] arrays.
  */
-template<typename TStr>
-void Ebwt<TStr>::sanityCheckUpToSide(TIndexOff upToSide) const {
+void Ebwt::sanityCheckUpToSide(TIndexOff upToSide) const {
 	assert(isInMemory());
 	TIndexOffU occ[] = {0, 0, 0, 0};
 	ASSERT_ONLY(TIndexOffU occ_save[] = {0, 0});
@@ -1786,8 +1627,7 @@ void Ebwt<TStr>::sanityCheckUpToSide(TIndexOff upToSide) const {
 /**
  * Sanity-check various pieces of the Ebwt
  */
-template<typename TStr>
-void Ebwt<TStr>::sanityCheckAll(int reverse) const {
+void Ebwt::sanityCheckAll(int reverse) const {
 	const EbwtParams& eh = this->_eh;
 	assert(isInMemory());
 	// Check ftab
@@ -1852,8 +1692,7 @@ void Ebwt<TStr>::sanityCheckAll(int reverse) const {
  * BWT transform).  Note that the 'L' in the name of the function
  * stands for 'last', as in the literature.
  */
-template<typename TStr>
-inline int Ebwt<TStr>::rowL(const SideLocus& l) const {
+inline int Ebwt::rowL(const SideLocus& l) const {
 	// Extract and return appropriate bit-pair
 #ifdef SIXTY4_FORMAT
 	return (((uint64_t*)l.side(this->_ebwt))[l._by >> 3] >> ((((l._by & 7) << 2) + l._bp) << 1)) & 3;
@@ -2031,7 +1870,7 @@ inline static void countInU64Ex(uint64_t dw, TIndexOffU* arrs) {
         tmp = pop64(x3);
 #endif
         arrs[2] += (uint32_t) tmp;
-	
+
         c0 = c_table[3];
         x0 = dw ^ c0;
         x1 = (x0 >> 1);
@@ -2054,8 +1893,7 @@ inline static void countInU64Ex(uint64_t dw, TIndexOffU* arrs) {
  *
  * Function gets 11.09% in profile
  */
-template<typename TStr>
-inline TIndexOffU Ebwt<TStr>::countUpTo(const SideLocus& l, int c) const {
+inline TIndexOffU Ebwt::countUpTo(const SideLocus& l, int c) const {
 	// Count occurrences of c in each 64-bit (using bit trickery);
 	// Someday countInU64() and pop() functions should be
 	// vectorized/SSE-ized in case that helps.
@@ -2068,7 +1906,7 @@ inline TIndexOffU Ebwt<TStr>::countUpTo(const SideLocus& l, int c) const {
         for(; i + 7 < l._by; i += 8) {
             cCnt += countInU64<USE_POPCNT_INSTRUCTION>(c, *(uint64_t*)&side[i]);
         }
-    } 
+    }
     else {
         for(; i + 7 < l._by; i += 8) {
             cCnt += countInU64<USE_POPCNT_GENERIC>(c, *(uint64_t*)&side[i]);
@@ -2090,18 +1928,18 @@ inline TIndexOffU Ebwt<TStr>::countUpTo(const SideLocus& l, int c) const {
 	if(bpShiftoff < 32) {
 		assert_lt(bpShiftoff, 32);
 		const uint64_t sw = (*(uint64_t*)&side[i]) << (bpShiftoff << 1);
-        
+
         #ifdef POPCNT_CAPABILITY
         if (_usePOPCNTinstruction) {
             cCnt += countInU64<USE_POPCNT_INSTRUCTION>(c, sw);
-        } 
+        }
         else {
             cCnt += countInU64<USE_POPCNT_GENERIC>(c, sw);
         }
         #else
 		cCnt += countInU64(c, sw);
         #endif
-        
+
 		if(c == 0) cCnt -= bpShiftoff; // we turned these into As
 	}
 #else
@@ -2121,8 +1959,7 @@ inline TIndexOffU Ebwt<TStr>::countUpTo(const SideLocus& l, int c) const {
  * Counts the number of occurrences of character 'c' in the given Ebwt
  * side up to (but not including) the given byte/bitpair (by/bp).
  */
-template<typename TStr>
-inline void Ebwt<TStr>::countUpToEx(const SideLocus& l, TIndexOffU* arrs) const {
+inline void Ebwt::countUpToEx(const SideLocus& l, TIndexOffU* arrs) const {
 	int i = 0;
 	// Count occurrences of c in each 64-bit (using bit trickery);
 	// note: this seems does not seem to lend a significant boost to
@@ -2138,13 +1975,13 @@ inline void Ebwt<TStr>::countUpToEx(const SideLocus& l, TIndexOffU* arrs) const 
         for(; i+7 < l._by; i += 8) {
             countInU64Ex<USE_POPCNT_INSTRUCTION>(*(uint64_t*)&side[i], arrs);
         }
-    } 
+    }
     else {
         for(; i+7 < l._by; i += 8) {
             countInU64Ex<USE_POPCNT_GENERIC>(*(uint64_t*)&side[i], arrs);
         }
     }
-#else 
+#else
 	for(; i+7 < l._by; i += 8) {
 		countInU64Ex(*(uint64_t*)&side[i], arrs);
 	}
@@ -2164,7 +2001,7 @@ inline void Ebwt<TStr>::countUpToEx(const SideLocus& l, TIndexOffU* arrs) const 
         else{
             countInU64Ex<USE_POPCNT_GENERIC>(sw, arrs);
         }
-#else       
+#else
 		countInU64Ex(sw, arrs);
 #endif
 
@@ -2193,8 +2030,7 @@ inline void Ebwt<TStr>::countUpToEx(const SideLocus& l, TIndexOffU* arrs) const 
  * forward side to <by,bp> and add in the occ[] count up to the side
  * break just prior to the side.
  */
-template<typename TStr>
-inline TIndexOffU Ebwt<TStr>::countFwSide(const SideLocus& l, int c) const { /* check */
+inline TIndexOffU Ebwt::countFwSide(const SideLocus& l, int c) const { /* check */
 	assert_lt(c, 4);
 	assert_geq(c, 0);
 	assert_lt(l._by, (int)this->_eh._sideBwtSz);
@@ -2241,8 +2077,7 @@ inline TIndexOffU Ebwt<TStr>::countFwSide(const SideLocus& l, int c) const { /* 
  * forward side to <by,bp> and add in the occ[] count up to the side
  * break just prior to the side.
  */
-template<typename TStr>
-inline void Ebwt<TStr>::countFwSideEx(const SideLocus& l, TIndexOffU* arrs) const
+inline void Ebwt::countFwSideEx(const SideLocus& l, TIndexOffU* arrs) const
 {
 	assert_lt(l._by, (int)this->_eh._sideBwtSz);
 	assert_geq(l._by, 0);
@@ -2297,8 +2132,7 @@ inline void Ebwt<TStr>::countFwSideEx(const SideLocus& l, TIndexOffU* arrs) cons
  * (actual beginning) of the backward side, and subtract that from the
  * occ[] count up to the side break.
  */
-template<typename TStr>
-inline TIndexOffU Ebwt<TStr>::countBwSide(const SideLocus& l, int c) const {
+inline TIndexOffU Ebwt::countBwSide(const SideLocus& l, int c) const {
 	assert_lt(c, 4);
 	assert_geq(c, 0);
 	assert_lt(l._by, (int)this->_eh._sideBwtSz);
@@ -2346,8 +2180,7 @@ inline TIndexOffU Ebwt<TStr>::countBwSide(const SideLocus& l, int c) const {
  * (actual beginning) of the backward side, and subtract that from the
  * occ[] count up to the side break.
  */
-template<typename TStr>
-inline void Ebwt<TStr>::countBwSideEx(const SideLocus& l, TIndexOffU* arrs) const {
+inline void Ebwt::countBwSideEx(const SideLocus& l, TIndexOffU* arrs) const {
 	assert_lt(l._by, (int)this->_eh._sideBwtSz);
 	assert_geq(l._by, 0);
 	assert_lt(l._bp, 4);
@@ -2403,8 +2236,7 @@ inline void Ebwt<TStr>::countBwSideEx(const SideLocus& l, TIndexOffU* arrs) cons
 	assert_leq(x[2], this->fchr()[3]); \
 	assert_leq(x[3], this->fchr()[4])
 
-template<typename TStr>
-inline TIndexOffU Ebwt<TStr>::countBt2Side(const SideLocus& l, int c) const {
+inline TIndexOffU Ebwt::countBt2Side(const SideLocus& l, int c) const {
 	assert_range(0, 3, c);
 	assert_range(0, (int)this->_eh._sideBwtSz-1, (int)l._by);
 	assert_range(0, 3, (int)l._bp);
@@ -2453,15 +2285,14 @@ inline TIndexOffU Ebwt<TStr>::countBt2Side(const SideLocus& l, int c) const {
  *         Side ptr (result from SideLocus.side())
  *
  * And following it is a reverse side shaped like:
- * 
+ *
  * [G] [T] XXXXXXXXXXXXXXXX
  * -4- -4- --------56------ (numbers in bytes)
  *         ^
  *         Side ptr (result from SideLocus.side())
  *
  */
-template<typename TStr>
-inline void Ebwt<TStr>::countBt2SideEx(const SideLocus& l, TIndexOffU* arrs) const {
+inline void Ebwt::countBt2SideEx(const SideLocus& l, TIndexOffU* arrs) const {
 	assert_range(0, (int)this->_eh._sideBwtSz-1, (int)l._by);
 	assert_range(0, 3, (int)l._bp);
 	countUpToEx(l, arrs);
@@ -2499,8 +2330,7 @@ inline void Ebwt<TStr>::countBt2SideEx(const SideLocus& l, TIndexOffU* arrs) con
  * Given top and bot loci, calculate counts of all four DNA chars up to
  * those loci.  Used for more advanced backtracking-search.
  */
-template<typename TStr>
-inline void Ebwt<TStr>::mapLFEx(const SideLocus& ltop,
+inline void Ebwt::mapLFEx(const SideLocus& ltop,
                                 const SideLocus& lbot,
                                 TIndexOffU *tops,
                                 TIndexOffU *bots
@@ -2510,7 +2340,7 @@ inline void Ebwt<TStr>::mapLFEx(const SideLocus& ltop,
 	// TODO: Where there's overlap, reuse the count for the overlapping
 	// portion
 #ifdef EBWT_STATS
-	const_cast<Ebwt<TStr>*>(this)->mapLFExs_++;
+	const_cast<Ebwt*>(this)->mapLFExs_++;
 #endif
 	assert_eq(0, tops[0]); assert_eq(0, bots[0]);
 	assert_eq(0, tops[1]); assert_eq(0, bots[1]);
@@ -2553,8 +2383,7 @@ inline void Ebwt<TStr>::mapLFEx(const SideLocus& ltop,
  * Given top and bot loci, calculate counts of all four DNA chars up to
  * those loci.  Used for more advanced backtracking-search.
  */
-template<typename TStr>
-inline void Ebwt<TStr>::mapLFEx(const SideLocus& l,
+inline void Ebwt::mapLFEx(const SideLocus& l,
 		TIndexOffU *arrs
                                 ASSERT_ONLY(, bool overrideSanity)
                                 ) const
@@ -2587,13 +2416,12 @@ inline void Ebwt<TStr>::mapLFEx(const SideLocus& l,
 /**
  * Given row i, return the row that the LF mapping maps i to.
  */
-template<typename TStr>
-inline TIndexOffU Ebwt<TStr>::mapLF(const SideLocus& l
+inline TIndexOffU Ebwt::mapLF(const SideLocus& l
                                   ASSERT_ONLY(, bool overrideSanity)
                                   ) const
 {
 #ifdef EBWT_STATS
-	const_cast<Ebwt<TStr>*>(this)->mapLFs_++;
+	const_cast<Ebwt*>(this)->mapLFs_++;
 #endif
 	TIndexOffU ret;
 	assert(l.side(this->_ebwt) != NULL);
@@ -2626,13 +2454,12 @@ inline TIndexOffU Ebwt<TStr>::mapLF(const SideLocus& l
  * Given row i and character c, return the row that the LF mapping maps
  * i to on character c.
  */
-template<typename TStr>
-inline TIndexOffU Ebwt<TStr>::mapLF(const SideLocus& l, int c
+inline TIndexOffU Ebwt::mapLF(const SideLocus& l, int c
                                   ASSERT_ONLY(, bool overrideSanity)
                                   ) const
 {
 #ifdef EBWT_STATS
-	const_cast<Ebwt<TStr>*>(this)->mapLFcs_++;
+	const_cast<Ebwt*>(this)->mapLFcs_++;
 #endif
 	TIndexOffU ret;
 	assert_lt(c, 4);
@@ -2663,13 +2490,12 @@ inline TIndexOffU Ebwt<TStr>::mapLF(const SideLocus& l, int c
  * Given row i and character c, return the row that the LF mapping maps
  * i to on character c.
  */
-template<typename TStr>
-inline TIndexOffU Ebwt<TStr>::mapLF1(TIndexOffU row, const SideLocus& l, int c
+inline TIndexOffU Ebwt::mapLF1(TIndexOffU row, const SideLocus& l, int c
                                    ASSERT_ONLY(, bool overrideSanity)
                                    ) const
 {
 #ifdef EBWT_STATS
-	const_cast<Ebwt<TStr>*>(this)->mapLF1cs_++;
+	const_cast<Ebwt*>(this)->mapLF1cs_++;
 #endif
 	if(rowL(l) != c || row == _zOff) return OFF_MASK;
 	TIndexOffU ret;
@@ -2700,13 +2526,12 @@ inline TIndexOffU Ebwt<TStr>::mapLF1(TIndexOffU row, const SideLocus& l, int c
  * Given row i and character c, return the row that the LF mapping maps
  * i to on character c.
  */
-template<typename TStr>
-inline int Ebwt<TStr>::mapLF1(TIndexOffU& row, const SideLocus& l
+inline int Ebwt::mapLF1(TIndexOffU& row, const SideLocus& l
                               ASSERT_ONLY(, bool overrideSanity)
                               ) const
 {
 #ifdef EBWT_STATS
-	const_cast<Ebwt<TStr>*>(this)->mapLF1s_++;
+	const_cast<Ebwt*>(this)->mapLF1s_++;
 #endif
 	if(row == _zOff) return -1;
 	int c = rowL(l);
@@ -2739,11 +2564,11 @@ inline int Ebwt<TStr>::mapLF1(TIndexOffU& row, const SideLocus& l
  * and the length of the reference.  Use a binary search through the
  * sorted list of reference fragment ranges t
  */
-template<typename TStr>
-void Ebwt<TStr>::joinedToTextOff(TIndexOffU qlen, TIndexOffU off,
-								TIndexOffU& tidx,
-								TIndexOffU& textoff,
-								TIndexOffU& tlen) const
+
+void Ebwt::joinedToTextOff(TIndexOffU qlen, TIndexOffU off,
+				 TIndexOffU& tidx,
+				 TIndexOffU& textoff,
+				 TIndexOffU& tlen) const
 {
 	TIndexOffU top = 0;
 	TIndexOffU bot = _nFrag; // 1 greater than largest addressable element
@@ -2806,28 +2631,21 @@ void Ebwt<TStr>::joinedToTextOff(TIndexOffU qlen, TIndexOffU off,
  * Report a potential match at offset 'off' with pattern length
  * 'qlen'.  Filter out spurious matches that span texts.
  */
-template<typename TStr>
-inline bool Ebwt<TStr>::report(const String<Dna5>& query,
-                               String<char>* quals,
-                               String<char>* name,
-                               bool color,
-                               char primer,
-                               char trimc,
-                               bool colExEnds,
-                               int snpPhred,
-                               const BitPairReference* ref,
-                               const std::vector<TIndexOffU>& mmui32,
-                               const std::vector<uint8_t>& refcs,
-                               size_t numMms,
-                               TIndexOffU off,
-                               TIndexOffU top,
-                               TIndexOffU bot,
-                               uint32_t qlen,
-                               int stratum,
-                               uint16_t cost,
-                               uint32_t patid,
-                               uint32_t seed,
-                               const EbwtSearchParams<TStr>& params) const
+inline bool Ebwt::report(const BTDnaString& query,
+			 BTString* quals,
+			 BTString* name,
+			 const EList<TIndexOffU>& mmui32,
+			 const EList<uint8_t>& refcs,
+			 size_t numMms,
+			 TIndexOffU off,
+			 TIndexOffU top,
+			 TIndexOffU bot,
+			 uint32_t qlen,
+			 int stratum,
+			 uint16_t cost,
+			 uint32_t patid,
+			 uint32_t seed,
+			 const EbwtSearchParams& params) const
 {
 	VMSG_NL("In report");
 	assert_geq(cost, (uint32_t)(stratum << 14));
@@ -2843,12 +2661,6 @@ inline bool Ebwt<TStr>::report(const String<Dna5>& query,
 			query,                    // read sequence
 			quals,                    // read quality values
 			name,                     // read name
-			color,                    // true -> read is colorspace
-			primer,
-			trimc,
-			colExEnds,                // true -> exclude nucleotides on ends
-			snpPhred,                 // phred probability of SNP
-			ref,                      // reference sequence
 			_fw,                      // true = index is forward; false = mirror
 			mmui32,                   // mismatch positions
 			refcs,                    // reference characters for mms
@@ -2877,18 +2689,11 @@ inline bool Ebwt<TStr>::report(const String<Dna5>& query,
  * into the original string can be read directly from the this->_offs[]
  * array.
  */
-template<typename TStr>
-inline bool Ebwt<TStr>::reportChaseOne(const String<Dna5>& query,
-                                       String<char>* quals,
-                                       String<char>* name,
-                                       bool color,
-                                       char primer,
-                                       char trimc,
-                                       bool colExEnds,
-                                       int snpPhred,
-                                       const BitPairReference* ref,
-                                       const std::vector<TIndexOffU>& mmui32,
-                                       const std::vector<uint8_t>& refcs,
+inline bool Ebwt::reportChaseOne(const BTDnaString& query,
+                                       BTString* quals,
+                                       BTString* name,
+                                       const EList<TIndexOffU>& mmui32,
+                                       const EList<uint8_t>& refcs,
                                        size_t numMms,
                                        TIndexOffU i,
                                        TIndexOffU top,
@@ -2898,7 +2703,7 @@ inline bool Ebwt<TStr>::reportChaseOne(const String<Dna5>& query,
                                        uint16_t cost,
                                        uint32_t patid,
                                        uint32_t seed,
-                                       const EbwtSearchParams<TStr>& params,
+                                       const EbwtSearchParams& params,
                                        SideLocus *l) const
 {
 	VMSG_NL("In reportChaseOne");
@@ -2940,198 +2745,12 @@ inline bool Ebwt<TStr>::reportChaseOne(const String<Dna5>& query,
 	}
 #ifndef NDEBUG
 	{
-		uint32_t rcoff = RowChaser<TStr>::toFlatRefOff(this, qlen, origi);
+		uint32_t rcoff = RowChaser::toFlatRefOff(this, qlen, origi);
 		assert_eq(rcoff, off);
 	}
 #endif
-	return report(query, quals, name, color, primer, trimc, colExEnds,
-	              snpPhred, ref, mmui32, refcs, numMms, off, top, bot,
+	return report(query, quals, name, mmui32, refcs, numMms, off, top, bot,
 	              qlen, stratum, cost, patid, seed, params);
-}
-
-/**
- * Report a result.  Involves walking backwards along the original
- * string by way of the LF-mapping until we reach a marked SA row or
- * the row corresponding to the 0th suffix.  A marked row's offset
- * into the original string can be read directly from the this->_offs[]
- * array.
- */
-template<typename TStr>
-inline bool Ebwt<TStr>::reportReconstruct(const String<Dna5>& query,
-                                          String<char>* quals,
-                                          String<char>* name,
-                                          String<Dna5>& lbuf,
-                                          String<Dna5>& rbuf,
-                                          const TIndexOffU *mmui32,
-                                          const char* refcs,
-                                          size_t numMms,
-                                          TIndexOffU i,
-                                          TIndexOffU top,
-                                          TIndexOffU bot,
-                                          uint32_t qlen,
-                                          int stratum,
-                                          const EbwtSearchParams<TStr>& params,
-                                          SideLocus *l) const
-{
-	VMSG_NL("In reportReconstruct");
-	assert_gt(_eh._isaLen, 0); // Must have inverse suffix array to reconstruct
-	TIndexOffU off;
-	TIndexOffU jumps = 0;
-	SideLocus myl;
-	const TIndexOffU offMask = this->_eh._offMask;
-	const TIndexOffU offRate = this->_eh._offRate;
-	const TIndexOffU* offs = this->_offs;
-	const TIndexOffU* isa = this->_isa;
-	assert(isa != NULL);
-	if(l == NULL) {
-		l = &myl;
-		myl.initFromRow(i, this->_eh, this->_ebwt);
-	}
-	assert(l != NULL);
-	clear(lbuf); clear(rbuf);
-	// Walk along until we reach the next marked row to the left
-	while(((i & offMask) != i) && i != _zOff) {
-		// Not a marked row; walk left one more char
-		int c = rowL(*l);
-		appendValue(lbuf, (Dna5)c);
-		TIndexOffU newi;
-		assert_lt(c, 4);
-		assert_geq(c, 0);
-		if(l->_fw) {
-			// Forward side
-			newi = !_eh._isBt2Index ? countFwSide(*l, c)
-			                        : countBt2Side(*l, c);
-		} else {
-			newi = countBwSide(*l, c); // Backward side
-		}
-		assert_lt(newi, this->_eh._bwtLen);
-		assert_neq(newi, i);
-		i = newi;                                  // update row
-		l->initFromRow(i, this->_eh, this->_ebwt); // update locus
-		jumps++;
-	}
-	// This is a marked row
-	if(i == _zOff) {
-		// Special case: it's the row corresponding to the
-		// lexicographically smallest suffix, which is implicitly
-		// marked 0
-		off = jumps;
-		VMSG_NL("reportChaseOne found zoff off=" << off << " (jumps=" << jumps << ")");
-	} else {
-		// Normal marked row, calculate offset of row i
-		off = offs[i >> offRate] + jumps;
-		VMSG_NL("reportChaseOne found off=" << off << " (jumps=" << jumps << ")");
-	}
-	// 'off' now holds the text offset of the first (leftmost) position
-	// involved in the alignment.  Next we call joinedToTextOff to
-	// check whether the seed is valid (i.e., does not straddle a
-	// boundary between two reference seuqences) and to obtain its
-	// extents
-	TIndexOffU tidx;    // the index (id) of the reference we hit in
-	TIndexOffU textoff; // the offset of the alignment within the reference
-	TIndexOffU tlen;    // length of reference seed hit in
-	joinedToTextOff(qlen, off, tidx, textoff, tlen);
-	if(tidx == OFF_MASK) {
-		// The seed straddled a reference boundary, and so is spurious.
-		// Return false, indicating that we shouldn't stop.
-		return false;
-	}
-	if(jumps > textoff) {
-		// In our progress toward a marked row, we passed the boundary
-		// between the reference sequence containing the seed and the
-		// reference sequence to the left of it.  That's OK, we just
-		// need to knock off the extra characters we added to 'lbuf'.
-		assert_eq(jumps, length(lbuf));
-		_setLength(lbuf, textoff);
-		jumps = textoff;
-		assert_eq(textoff, length(lbuf));
-	} else if(jumps < textoff) {
-		// Keep walking until we reach the end of the reference
-		assert_neq(i, _zOff);
-		TIndexOffU diff = textoff-jumps;
-		for(size_t j = 0; j < diff; j++) {
-			// Not a marked row; walk left one more char
-			int c = rowL(*l);
-			appendValue(lbuf, (Dna5)c);
-			TIndexOffU newi;
-			assert_lt(c, 4);
-			assert_geq(c, 0);
-			if(l->_fw) {
-				// Forward side
-				newi = !_eh._isBt2Index ? countFwSide(*l, c)
-				                        : countBt2Side(*l, c);
-			} else {
-				newi = countBwSide(*l, c); // Backward side
-			}
-			assert_lt(newi, this->_eh._bwtLen);
-			assert_neq(newi, i);
-			i = newi;                                  // update row
-			assert_neq(i, _zOff);
-			l->initFromRow(i, this->_eh, this->_ebwt); // update locus
-			jumps++;
-		}
-		assert_eq(textoff, jumps);
-		assert_eq(textoff, length(lbuf));
-	}
-	assert_eq(textoff, jumps);
-	assert_eq(textoff, length(lbuf));
-	// Calculate the right-hand extent of the reference
-	TIndexOffU ref_right = off - textoff + tlen;
-	// Round the right-hand extent to the nearest ISA element that maps
-	// to it or a character to its right
-	TIndexOffU ref_right_rounded = ref_right;
-	if((ref_right_rounded & _eh._isaMask) != ref_right_rounded) {
-		ref_right_rounded = ((ref_right_rounded >> _eh._isaRate)+1) << _eh._isaRate;
-	}
-	// TODO: handle case where ref_right_rounded is off the end of _isa
-	// Let the current suffix-array elt be determined by the ISA
-	if((ref_right_rounded >> _eh._isaRate) >= _eh._isaLen) {
-		i = _eh._len;
-		ref_right_rounded = _eh._len;
-	} else {
-		i = isa[ref_right_rounded >> _eh._isaRate];
-	}
-	TIndexOffU right_steps_rounded = ref_right_rounded - (off + qlen);
-	TIndexOffU right_steps = ref_right - (off + qlen);
-	l->initFromRow(i, this->_eh, this->_ebwt); // update locus
-	for(size_t j = 0; j < right_steps_rounded; j++) {
-		// Not a marked row; walk left one more char
-		int c = rowL(*l);
-		appendValue(rbuf, (Dna5)c);
-		TIndexOffU newi;
-		assert_lt(c, 4); assert_geq(c, 0);
-		if(l->_fw) {
-			// Forward side
-			newi = !_eh._isBt2Index ? countFwSide(*l, c)
-			                        : countBt2Side(*l, c);
-		}
-		else {
-			newi = countBwSide(*l, c); // Backward side
-		}
-		assert_lt(newi, this->_eh._bwtLen);
-		assert_neq(newi, i);
-		i = newi;                                  // update row
-		assert_neq(i, _zOff);
-		l->initFromRow(i, this->_eh, this->_ebwt); // update locus
-		jumps++;
-	}
-	if(right_steps_rounded > right_steps) {
-		jumps -= (right_steps_rounded - right_steps);
-		_setLength(rbuf, right_steps);
-	}
-	assert_eq(right_steps, length(rbuf));
-	assert_eq(tlen, jumps + qlen);
-	::reverseInPlace(lbuf);
-	::reverseInPlace(rbuf);
-	{
-		cout << "reportReconstruct:" << endl
-			 << "  " << lbuf << query << rbuf << endl;
-		cout << "  ";
-		for(size_t i = 0; i < length(lbuf); i++) cout << " ";
-		cout << query << endl;
-	}
-	// Now we've reconstructed the
-	return false;
 }
 
 /**
@@ -3140,10 +2759,9 @@ inline bool Ebwt<TStr>::reportReconstruct(const String<Dna5>& query,
  * to the end of the string.  The result is written to s.  The Ebwt
  * must be in memory.
  */
-template<typename TStr>
-void Ebwt<TStr>::restore(TStr& s) const {
+void Ebwt::restore(BTRefString& s) const {
 	assert(isInMemory());
-	resize(s, this->_eh._len, Exact());
+	s.resize(this->_eh._len);
 	TIndexOffU jumps = 0;
 	TIndexOffU i = this->_eh._len; // should point to final SA elt (starting with '$')
 	SideLocus l(i, this->_eh, this->_ebwt);
@@ -3165,11 +2783,9 @@ void Ebwt<TStr>::restore(TStr& s) const {
  * Check that this Ebwt, when restored via restore(), matches up with
  * the given array of reference sequences.  For sanity checking.
  */
-template <typename TStr>
-void Ebwt<TStr>::checkOrigs(const vector<String<Dna5> >& os,
-                            bool color, bool mirror) const
+void Ebwt::checkOrigs(const EList<BTRefString >& os, bool mirror) const
 {
-	TStr rest;
+	BTRefString rest;
 	restore(rest);
 	TIndexOffU restOff = 0;
 	size_t i = 0, j = 0;
@@ -3178,14 +2794,12 @@ void Ebwt<TStr>::checkOrigs(const vector<String<Dna5> >& os,
 		return;
 	}
 	while(i < os.size()) {
-		size_t olen = length(os[i]);
-		int lastorig = -1;
+		size_t olen = os[i].length();
 		for(; j < olen; j++) {
 			size_t joff = j;
 			if(mirror) joff = olen - j - 1;
 			if((int)os[i][joff] == 4) {
 				// Skip over Ns
-				lastorig = -1;
 				if(!mirror) {
 					while(j < olen && (int)os[i][j] == 4) j++;
 				} else {
@@ -3194,20 +2808,11 @@ void Ebwt<TStr>::checkOrigs(const vector<String<Dna5> >& os,
 				j--;
 				continue;
 			}
-			if(lastorig == -1 && color) {
-				lastorig = os[i][joff];
-				continue;
-			}
-			if(color) {
-				assert_neq(-1, lastorig);
-				assert_eq(dinuc2color[(int)os[i][joff]][lastorig], rest[restOff]);
-			} else {
-				assert_eq(os[i][joff], rest[restOff]);
-			}
-			lastorig = (int)os[i][joff];
+
+			assert_eq(os[i][joff], rest[restOff]);
 			restOff++;
 		}
-		if(j == length(os[i])) {
+		if(j == os[i].length()) {
 			// Moved to next sequence
 			i++;
 			j = 0;
@@ -3226,9 +2831,7 @@ void Ebwt<TStr>::checkOrigs(const vector<String<Dna5> >& os,
 /**
  * Read an Ebwt from file with given filename.
  */
-template<typename TStr>
-void Ebwt<TStr>::readIntoMemory(
-	int color,
+void Ebwt::readIntoMemory(
 	int needEntireRev,
 	bool justHeader,
 	EbwtParams *params,
@@ -3360,25 +2963,6 @@ void Ebwt<TStr>::readIntoMemory(
 	// we use it to hold flags.
 	int32_t flags = readI<int32_t>(_in1, switchEndian);
 	bool entireRev = false;
-	if(flags < 0 && (((-flags) & EBWT_COLOR) != 0)) {
-		if(color != -1 && !color) {
-			cerr << "Error: -C was not specified when running bowtie, but index is in colorspace.  If" << endl
-			     << "your reads are in colorspace, please use the -C option.  If your reads are not" << endl
-			     << "in colorspace, please use a normal index (one built without specifying -C to" << endl
-			     << "bowtie-build)." << endl;
-			throw 1;
-		}
-		color = 1;
-	} else if(flags < 0) {
-		if(color != -1 && color) {
-			cerr << "Error: -C was specified when running bowtie, but index is not in colorspace.  If" << endl
-			     << "your reads are in colorspace, please use a colorspace index (one built using" << endl
-			     << "bowtie-build -C).  If your reads are not in colorspace, don't specify -C when" << endl
-			     << "running bowtie." << endl;
-			throw 1;
-		}
-		color = 0;
-	}
 	if(flags < 0 && (((-flags) & EBWT_ENTIRE_REV) == 0)) {
 		if(needEntireRev != -1 && needEntireRev != 0) {
 			cerr << "Error: This index is not compatible with this version of bowtie.  Please use a" << endl
@@ -3392,11 +2976,11 @@ void Ebwt<TStr>::readIntoMemory(
 	EbwtParams *eh;
 	bool deleteEh = false;
 	if(params != NULL) {
-		params->init(len, lineRate, linesPerSide, offRate, isaRate, ftabChars, color, entireRev, _isBt2Index);
+		params->init(len, lineRate, linesPerSide, offRate, isaRate, ftabChars, entireRev, _isBt2Index);
 		if(_verbose || startVerbose) params->print(cerr);
 		eh = params;
 	} else {
-		eh = new EbwtParams(len, lineRate, linesPerSide, offRate, isaRate, ftabChars, color, entireRev, _isBt2Index);
+		eh = new EbwtParams(len, lineRate, linesPerSide, offRate, isaRate, ftabChars, entireRev, _isBt2Index);
 		deleteEh = true;
 	}
 
@@ -3865,7 +3449,7 @@ void Ebwt<TStr>::readIntoMemory(
  * TODO: revisit this function
  */
 static inline void
-readEbwtRefnames(FILE* fin, vector<string>& refnames) {
+readEbwtRefnames(FILE* fin, EList<string>& refnames) {
 	// _in1 must already be open with the get cursor at the
 	// beginning and no error flags set.
 	assert(fin != NULL);
@@ -3887,10 +3471,8 @@ readEbwtRefnames(FILE* fin, vector<string>& refnames) {
 	int32_t  ftabChars    = readI<int32_t>(fin, switchEndian);
 	// BTL: chunkRate is now deprecated
 	int32_t flags = readI<int32_t>(fin, switchEndian);
-	bool color = false;
 	bool entireReverse = false;
 	if(flags < 0) {
-		color = (((-flags) & EBWT_COLOR) != 0);
 		entireReverse = (((-flags) & EBWT_ENTIRE_REV) != 0);
 	}
 
@@ -3899,7 +3481,7 @@ readEbwtRefnames(FILE* fin, vector<string>& refnames) {
 	if (gEbwt_ext == "bt2" || gEbwt_ext == "bt2") {
 		isBt2Index = true;
 	}
-	EbwtParams eh(len, lineRate, linesPerSide, offRate, -1, ftabChars, color, entireReverse, isBt2Index);
+	EbwtParams eh(len, lineRate, linesPerSide, offRate, -1, ftabChars, entireReverse, isBt2Index);
 
 	TIndexOffU nPat = readI<TIndexOffU>(fin, switchEndian); // nPat
 	fseeko(fin, nPat*OFF_SIZE, SEEK_CUR);
@@ -3954,7 +3536,7 @@ readEbwtRefnames(FILE* fin, vector<string>& refnames) {
  * them in 'refnames'.
  */
 static inline void
-readEbwtRefnames(const string& instr, vector<string>& refnames) {
+readEbwtRefnames(const string& instr, EList<string>& refnames) {
     FILE* fin;
 	// Initialize our primary and secondary input-stream fields
     fin = fopen((instr + ".1." + gEbwt_ext).c_str(),"rb");
@@ -3996,20 +3578,6 @@ static inline int32_t readFlags(const string& instr) {
 
 /**
  * Read just enough of the Ebwt's header to determine whether it's
- * colorspace.
- */
-static inline bool
-readEbwtColor(const string& instr) {
-	int32_t flags = readFlags(instr);
-	if(flags < 0 && (((-flags) & EBWT_COLOR) != 0)) {
-		return true;
-	} else {
-		return false;
-	}
-}
-
-/**
- * Read just enough of the Ebwt's header to determine whether it's
  * entirely reversed.
  */
 static inline bool
@@ -4030,10 +3598,9 @@ readEntireReverse(const string& instr) {
  * @param out2 output stream to secondary file
  * @param be   write in big endian?
  */
-template<typename TStr>
-void Ebwt<TStr>::writeFromMemory(bool justHeader,
-                                 ostream& out1,
-                                 ostream& out2) const
+void Ebwt::writeFromMemory(bool justHeader,
+			   ostream& out1,
+			   ostream& out2) const
 {
 	const EbwtParams& eh = this->_eh;
 	assert(eh.repOk());
@@ -4052,7 +3619,6 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
 	writeI<int32_t>(out1, eh._offRate,      be); // every 2^offRate chars is "marked"
 	writeI<int32_t>(out1, eh._ftabChars,    be); // number of 2-bit chars used to address ftab
 	int32_t flags = 1;
-	if(eh._color) flags |= EBWT_COLOR;
 	if(eh._entireReverse) flags |= EBWT_ENTIRE_REV;
 	writeI<int32_t>(out1, -flags, be); // BTL: chunkRate is now deprecated
 
@@ -4106,14 +3672,12 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
  * (hopefully) exact copy of this Ebwt.  We then assert that the
  * current Ebwt and the copy match in all of their fields.
  */
-template<typename TStr>
-void Ebwt<TStr>::writeFromMemory(bool justHeader,
-                                 const string& out1,
-                                 const string& out2) const
+void Ebwt::writeFromMemory(bool justHeader,
+			   const string& out1,
+			   const string& out2) const
 {
-	const EbwtParams& eh = this->_eh;
 	assert(isInMemory());
-	assert(eh.repOk());
+	assert(this->_eh.repOk());
 
 	ofstream fout1(out1.c_str(), ios::binary);
 	ofstream fout2(out2.c_str(), ios::binary);
@@ -4122,7 +3686,9 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
 	fout2.close();
 
 	// Read the file back in and assert that all components match
+	// TODO: revisit this block
 	if(_sanity) {
+#if 0
 		if(_verbose)
 			cout << "Re-reading \"" << out1 << "\"/\"" << out2 << "\" for sanity check" << endl;
 		Ebwt copy(out1, out2, _verbose, _sanity);
@@ -4142,7 +3708,7 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
 		for(TIndexOffU i = 0; i < _nPat; i++)
 			assert_eq(this->_plen[i], copy.plen()[i]);
 		assert_eq(this->_nFrag, copy.nFrag());
-		for(TIndexOffU i = 0; i < this->nFrag*3; i++) {
+		for(TIndexOffU i = 0; i < this->_nFrag*3; i++) {
 			assert_eq(this->_rstarts[i], copy.rstarts()[i]);
 		}
 		for(uint32_t i = 0; i < 5; i++)
@@ -4160,6 +3726,7 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
 		//copy.sanityCheckAll();
 		if(_verbose)
 			cout << "Read-in check passed for \"" << out1 << "\"/\"" << out2 << "\"" << endl;
+#endif
 	}
 }
 
@@ -4177,20 +3744,20 @@ void Ebwt<TStr>::writeFromMemory(bool justHeader,
  * arrays that maintain a mapping between chunks in the joined string
  * and the original text strings.
  */
-template<typename TStr>
-TStr Ebwt<TStr>::join(vector<TStr>& l, uint32_t seed) {
+template <typename TStr>
+TStr Ebwt::join(EList<TStr>& l, uint32_t seed) {
 	RandomSource rand; // reproducible given same seed
 	rand.init(seed);
 	TStr ret;
 	size_t guessLen = 0;
 	for(size_t i = 0; i < l.size(); i++) {
-		guessLen += length(l[i]);
+		guessLen += l[i].length();
 	}
-	reserve(ret, guessLen, Exact());
+	ret.reserve(guessLen);
 	for(size_t i = 0; i < l.size(); i++) {
 		TStr& s = l[i];
-		assert_gt(length(s), 0);
-		append(ret, s);
+		assert_gt(s.length(), 0);
+		ret.push_back(s);
 	}
 	return ret;
 }
@@ -4204,25 +3771,26 @@ TStr Ebwt<TStr>::join(vector<TStr>& l, uint32_t seed) {
  * and the original text strings.
  */
 template<typename TStr>
-TStr Ebwt<TStr>::join(vector<FileBuf*>& l,
-                      vector<RefRecord>& szs,
-                      TIndexOffU sztot,
-                      const RefReadInParams& refparams,
-                      uint32_t seed)
+TStr Ebwt::join(EList<FileBuf*>& l,
+		EList<RefRecord>& szs,
+		TIndexOffU sztot,
+		const RefReadInParams& refparams,
+		uint32_t seed)
 {
 	RandomSource rand; // reproducible given same seed
 	rand.init(seed);
 	RefReadInParams rpcp = refparams;
 	TStr ret;
 	size_t guessLen = sztot;
-	reserve(ret, guessLen, Exact());
+	ret.resize(guessLen);
+	TIndexOffU dstoff = 0;
 	ASSERT_ONLY(size_t szsi = 0);
 	for(size_t i = 0; i < l.size(); i++) {
 		// For each sequence we can pull out of istream l[i]...
 		assert(!l[i]->eof());
 		bool first = true;
 		while(!l[i]->eof()) {
-			RefRecord rec = fastaRefReadAppend(*l[i], first, ret, rpcp);
+			RefRecord rec = fastaRefReadAppend(*l[i], first, ret, dstoff, rpcp);
 #ifndef ACCOUNT_FOR_ALL_GAP_REFS
 			if(rec.first && rec.len == 0) rec.first = false;
 #endif
@@ -4253,10 +3821,10 @@ TStr Ebwt<TStr>::join(vector<FileBuf*>& l,
  * the same seed.
  */
 template<typename TStr>
-void Ebwt<TStr>::joinToDisk(
-	vector<FileBuf*>& l,
-	vector<RefRecord>& szs,
-	vector<uint32_t>& plens,
+void Ebwt::joinToDisk(
+	EList<FileBuf*>& l,
+	EList<RefRecord>& szs,
+	EList<uint32_t>& plens,
 	TIndexOffU sztot,
 	const RefReadInParams& refparams,
 	TStr& ret,
@@ -4313,6 +3881,7 @@ void Ebwt<TStr>::joinToDisk(
 	TIndexOffU seqsRead = 0;
 	ASSERT_ONLY(TIndexOffU szsi = 0);
 	ASSERT_ONLY(TIndexOffU entsWritten = 0);
+	TIndexOffU dstoff = 0;
 	// For each filebuf
 	for(unsigned int i = 0; i < l.size(); i++) {
 		assert(!l[i]->eof());
@@ -4325,7 +3894,7 @@ void Ebwt<TStr>::joinToDisk(
 			// Push a new name onto our vector
 			_refnames.push_back("");
 			//uint32_t oldRetLen = length(ret);
-			RefRecord rec = fastaRefReadAppend(*l[i], first, ret, rpcp, &_refnames.back());
+			RefRecord rec = fastaRefReadAppend(*l[i], first, ret, dstoff, rpcp, &_refnames.back());
 #ifndef ACCOUNT_FOR_ALL_GAP_REFS
 			if(rec.first && rec.len == 0) rec.first = false;
 #endif
@@ -4413,19 +3982,19 @@ void Ebwt<TStr>::joinToDisk(
  * @param out
  */
 template<typename TStr>
-void Ebwt<TStr>::buildToDisk(InorderBlockwiseSA<TStr>& sa,
-                             const TStr& s,
-                             ostream& out1,
-                             ostream& out2)
+void Ebwt::buildToDisk(InorderBlockwiseSA<TStr>& sa,
+		       const TStr& s,
+		       ostream& out1,
+		       ostream& out2)
 {
 	const EbwtParams& eh = this->_eh;
 
 	assert(eh.repOk());
-	assert_eq(length(s)+1, sa.size());
-	assert_eq(length(s), eh._len);
+	assert_eq(s.length()+1, sa.size());
+	assert_eq(s.length(), eh._len);
 	assert_gt(eh._lineRate, 3);
 	assert(sa.suffixItrIsReset());
-	assert_leq((int)ValueSize<Dna>::VALUE, 4);
+	// assert_leq((int)ValueSize<Dna>::VALUE, 4);
 
 	TIndexOffU  len = eh._len;
 	TIndexOffU  ftabLen = eh._ftabLen;
@@ -4567,7 +4136,7 @@ void Ebwt<TStr>::buildToDisk(InorderBlockwiseSA<TStr>& sa,
 					zOff = si; // remember the SA row that
 					           // corresponds to the 0th suffix
 				} else {
-					bwtChar = (int)(Dna)(s[saElt-1]);
+					bwtChar = (int)(s[saElt-1]);
 					assert_lt(bwtChar, 4);
 					// Update the fchr
 					fchr[bwtChar]++;
@@ -4580,7 +4149,7 @@ void Ebwt<TStr>::buildToDisk(InorderBlockwiseSA<TStr>& sa,
 					for(int i = 0; i < eh._ftabChars; i++) {
 						sufInt <<= 2;
 						assert_lt((TIndexOffU)i, len-saElt);
-						sufInt |= (unsigned char)(Dna)(s[saElt+i]);
+						sufInt |= (unsigned char)(s[saElt+i]);
 					}
 					// Assert that this prefix-of-suffix is greater
 					// than or equal to the last one (true b/c the

@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
-#include <seqan/find.h>
 #include <getopt.h>
 #include <vector>
 #include <time.h>
@@ -15,257 +14,247 @@
 #include <signal.h>
 #endif
 
-#include "alphabet.h"
-#include "assert_helpers.h"
-#include "endian_swap.h"
-#include "ebwt.h"
-#include "formats.h"
-#include "sequence_io.h"
-#include "tokenize.h"
-#include "hit.h"
-#include "pat.h"
-#include "bitset.h"
-#include "threading.h"
-#include "range_cache.h"
 #include "aligner.h"
 #include "aligner_0mm.h"
 #include "aligner_1mm.h"
 #include "aligner_23mm.h"
-#include "aligner_seed_mm.h"
 #include "aligner_metrics.h"
-#include "sam.h"
+#include "aligner_seed_mm.h"
+#include "alphabet.h"
+#include "assert_helpers.h"
+#include "bitset.h"
+#include "ds.h"
+#include "ebwt.h"
 #include "ebwt_search.h"
+#include "endian_swap.h"
+#include "formats.h"
+#include "hit.h"
+#include "pat.h"
+#include "range_cache.h"
+#include "sam.h"
+#include "sequence_io.h"
+#include "threading.h"
+#include "tokenize.h"
 #ifdef CHUD_PROFILING
 #include <CHUD/CHUD.h>
 #endif
 
 static int FNAME_SIZE;
-#ifdef WITH_TBB
-#include <tbb/compat/thread>
-static tbb::atomic<int> thread_counter;
+#if (__cplusplus >= 201103L)
+#include <thread>
+static std::atomic<int> thread_counter;
 #else
 static int thread_counter;
 static MUTEX_T thread_counter_mutex;
 #endif
 
 using namespace std;
-using namespace seqan;
 
-static vector<string> mates1;  // mated reads (first mate)
-static vector<string> mates2;  // mated reads (second mate)
-static vector<string> mates12; // mated reads (1st/2nd interleaved in 1 file)
+static EList<string> mates1;		// mated reads (first mate)
+static EList<string> mates2;		// mated reads (second mate)
+static EList<string> mates12;		// mated reads (1st/2nd interleaved in 1 file)
 static string adjustedEbwtFileBase;
-static bool verbose;      // be talkative
-static bool startVerbose; // be talkative at startup
-bool quiet;        // print nothing but the alignments
-static int sanityCheck;   // enable expensive sanity checks
-static int format;        // default read format is FASTQ
-static string origString; // reference text, or filename(s)
-static int seed;          // srandom() seed
-static int timing;        // whether to report basic timing data
-static bool allHits;      // for multihits, report just one
-static bool rangeMode;    // report BWT ranges instead of ref locs
-static int showVersion;   // just print version and quit?
-static int ipause;        // pause before maching?
-static uint32_t qUpto;    // max # of queries to read
-static int trim5;         // amount to trim from 5' end
-static int trim3;         // amount to trim from 3' end
-static int reportOpps;    // whether to report # of other mappings
-static int offRate;       // keep default offRate
-static int isaRate;       // keep default isaRate
-static int mismatches;    // allow 0 mismatches by default
-static bool solexaQuals;  // quality strings are solexa quals, not phred, and subtract 64 (not 33)
-static bool phred64Quals; // quality chars are phred, but must subtract 64 (not 33)
-static bool integerQuals; // quality strings are space-separated strings of integers, not ASCII
-static int maqLike;       // do maq-like searching
-static int seedLen;       // seed length (changed in Maq 0.6.4 from 24)
-static int seedMms;       // # mismatches allowed in seed (maq's -n)
-static int qualThresh;    // max qual-weighted hamming dist (maq's -e)
-static int maxBtsBetter;  // max # backtracks allowed in half-and-half mode
-static int maxBts;        // max # backtracks allowed in half-and-half mode
-static int nthreads;      // number of pthreads operating concurrently
-static bool reorder;      // reorder SAM output when running multi-threaded
-static int thread_ceiling;// maximum number of threads user wants bowtie to use
-static string thread_stealing_dir; // keep track of pids in this directory
-static bool thread_stealing;// true iff thread stealing is in use
-static output_types outType;  // style of output
-static bool noRefNames;       // true -> print reference indexes; not names
-static string dumpAlBase;     // basename of same-format files to dump aligned reads to
-static string dumpUnalBase;   // basename of same-format files to dump unaligned reads to
-static string dumpMaxBase;    // basename of same-format files to dump reads with more than -m valid alignments to
-static uint32_t khits;  // number of hits per read; >1 is much slower
-static uint32_t mhits;  // don't report any hits if there are > mhits
-static bool better;     // true -> guarantee alignments from best possible stratum
-static bool strata;     // true -> don't stop at stratum boundaries
-static int partitionSz; // output a partitioning key in first field
-static int readsPerBatch; // # reads to read from input file at once
-static size_t outBatchSz; // # alignments to write to output file at once
-static bool noMaqRound; // true -> don't round quals to nearest 10 like maq
-static bool fileParallel; // separate threads read separate input files in parallel
-static bool useShmem;     // use shared memory to hold the index
-static bool useMm;        // use memory-mapped files to hold the index
-static bool mmSweep;      // sweep through memory-mapped files immediately after mapping
-static bool stateful;     // use stateful aligners
-static uint32_t prefetchWidth; // number of reads to process in parallel w/ --stateful
-static uint32_t minInsert;     // minimum insert size (Maq = 0, SOAP = 400)
-static uint32_t maxInsert;     // maximum insert size (Maq = 250, SOAP = 600)
-static bool mate1fw;           // -1 mate aligns in fw orientation on fw strand
-static bool mate2fw;           // -2 mate aligns in rc orientation on fw strand
-static bool mateFwSet;         // true -> user set --ff/--fr/--rf
-static uint32_t mixedThresh;   // threshold for when to switch to paired-end mixed mode (see aligner.h)
-static uint32_t mixedAttemptLim; // number of attempts to make in "mixed mode" before giving up on orientation
-static bool dontReconcileMates;  // suppress pairwise all-versus-all way of resolving mates
-static uint32_t cacheLimit;      // ranges w/ size > limit will be cached
-static uint32_t cacheSize;       // # words per range cache
-static int offBase;              // offsets are 0-based by default, but configurable
-static bool tryHard;             // set very high maxBts, mixedAttemptLim
-static uint32_t skipReads;       // # reads/read pairs to skip
-static bool nofw; // don't align fw orientation of read
-static bool norc; // don't align rc orientation of read
-static bool strandFix;  // attempt to fix strand bias
-static bool stats; // print performance stats
-static int chunkPoolMegabytes;    // max MB to dedicate to best-first search frames per thread
-static int chunkSz;    // size of single chunk disbursed by ChunkPool
-static bool chunkVerbose; // have chunk allocator output status messages?
+static bool verbose;			// be talkative
+static bool startVerbose;		// be talkative at startup
+bool quiet;				// print nothing but the alignments
+static int sanityCheck;			// enable expensive sanity checks
+static int format;			// default read format is FASTQ
+static string origString;		// reference text, or filename(s)
+static int seed;			// srandom() seed
+static int timing;			// whether to report basic timing data
+static bool allHits;			// for multihits, report just one
+static bool rangeMode;			// report BWT ranges instead of ref locs
+static int showVersion;			// just print version and quit?
+static int ipause;			// pause before maching?
+static uint32_t qUpto;			// max # of queries to read
+static int trim5;			// amount to trim from 5' end
+static int trim3;			// amount to trim from 3' end
+static int reportOpps;			// whether to report # of other mappings
+static int offRate;			// keep default offRate
+static int isaRate;			// keep default isaRate
+static int mismatches;			// allow 0 mismatches by default
+static bool solexaQuals;		// quality strings are solexa quals, not phred, and subtract 64 (not 33)
+static bool phred64Quals;		// quality chars are phred, but must subtract 64 (not 33)
+static bool integerQuals;		// quality strings are space-separated strings of integers, not ASCII
+static int maqLike;			// do maq-like searching
+static int seedLen;			// seed length (changed in Maq 0.6.4 from 24)
+static int seedMms;			// # mismatches allowed in seed (maq's -n)
+static int qualThresh;			// max qual-weighted hamming dist (maq's -e)
+static int maxBtsBetter;		// max # backtracks allowed in half-and-half mode
+static int maxBts;			// max # backtracks allowed in half-and-half mode
+static int nthreads;			// number of pthreads operating concurrently
+static bool reorder;			// reorder SAM output when running multi-threaded
+static int thread_ceiling;		// maximum number of threads user wants bowtie to use
+static string thread_stealing_dir;	// keep track of pids in this directory
+static bool thread_stealing;		// true iff thread stealing is in use
+static output_types outType;		// style of output
+static bool noRefNames;			// true -> print reference indexes; not names
+static string dumpAlBase;		// basename of same-format files to dump aligned reads to
+static string dumpUnalBase;		// basename of same-format files to dump unaligned reads to
+static string dumpMaxBase;		// basename of same-format files to dump reads with more than -m valid alignments to
+static uint32_t khits;			// number of hits per read; >1 is much slower
+static uint32_t mhits;			// don't report any hits if there are > mhits
+static bool better;			// true -> guarantee alignments from best possible stratum
+static bool strata;			// true -> don't stop at stratum boundaries
+static int partitionSz;			// output a partitioning key in first field
+static int readsPerBatch;		// # reads to read from input file at once
+static size_t outBatchSz;		// # alignments to write to output file at once
+static bool noMaqRound;			// true -> don't round quals to nearest 10 like maq
+static bool fileParallel;		// separate threads read separate input files in parallel
+static bool useShmem;			// use shared memory to hold the index
+static bool useMm;			// use memory-mapped files to hold the index
+static bool mmSweep;			// sweep through memory-mapped files immediately after mapping
+static bool stateful;			// use stateful aligners
+static uint32_t prefetchWidth;		// number of reads to process in parallel w/ --stateful
+static uint32_t minInsert;		// minimum insert size (Maq = 0, SOAP = 400)
+static uint32_t maxInsert;		// maximum insert size (Maq = 250, SOAP = 600)
+static bool mate1fw;			// -1 mate aligns in fw orientation on fw strand
+static bool mate2fw;			// -2 mate aligns in rc orientation on fw strand
+static bool mateFwSet;			// true -> user set --ff/--fr/--rf
+static uint32_t mixedThresh;		// threshold for when to switch to paired-end mixed mode (see aligner.h)
+static uint32_t mixedAttemptLim;	// number of attempts to make in "mixed mode" before giving up on orientation
+static bool dontReconcileMates;		// suppress pairwise all-versus-all way of resolving mates
+static uint32_t cacheLimit;		// ranges w/ size > limit will be cached
+static uint32_t cacheSize;		// # words per range cache
+static int offBase;			// offsets are 0-based by default, but configurable
+static bool tryHard;			// set very high maxBts, mixedAttemptLim
+static uint32_t skipReads;		// # reads/read pairs to skip
+static bool nofw;			// don't align fw orientation of read
+static bool norc;			// don't align rc orientation of read
+static bool strandFix;			// attempt to fix strand bias
+static bool stats;			// print performance stats
+static int chunkPoolMegabytes;		// max MB to dedicate to best-first search frames per thread
+static int chunkSz;			// size of single chunk disbursed by ChunkPool
+static bool chunkVerbose;		// have chunk allocator output status messages?
 static bool useV1;
 static bool reportSe;
 static size_t fastaContLen;
 static size_t fastaContFreq;
-static bool hadoopOut; // print Hadoop status and summary messages
+static bool hadoopOut;			// print Hadoop status and summary messages
 static bool fullRef;
-static bool samNoQnameTrunc; // don't truncate QNAME field at first whitespace
-static bool samNoHead; // don't print any header lines in SAM output
-static bool samNoSQ;   // don't print @SQ header lines
-bool color;     // true -> inputs are colorspace
-bool colorExEnds; // true -> nucleotides on either end of decoded cspace alignment should be excluded
-static string rgs; // SAM outputs for @RG header line
-int snpPhred; // probability of SNP, for scoring colorspace alignments
-static Bitset suppressOuts(64); // output fields to suppress
-static bool sampleMax; // whether to report a random alignment when maxed-out via -m/-M
-static int defaultMapq; // default mapping quality to print in SAM mode
-bool colorSeq; // true -> show colorspace alignments as colors, not decoded bases
-bool colorQual; // true -> show colorspace qualities as original quals, not decoded quals
-static bool printCost; // true -> print stratum and cost
+static bool samNoQnameTrunc;		// don't truncate QNAME field at first whitespace
+static bool samNoHead;			// don't print any header lines in SAM output
+static bool samNoSQ;			// don't print @SQ header lines
+static string rgs;			// SAM outputs for @RG header line
+static Bitset suppressOuts(64);		// output fields to suppress
+static bool sampleMax;			// whether to report a random alignment when maxed-out via -m/-M
+static int defaultMapq;			// default mapping quality to print in SAM mode
+static bool printCost;			// true -> print stratum and cost
 bool showSeed;
-static vector<string> qualities;
-static vector<string> qualities1;
-static vector<string> qualities2;
-static string wrapper; // Type of wrapper script
+static EList<string> qualities;
+static EList<string> qualities1;
+static EList<string> qualities2;
+static string wrapper;			// Type of wrapper script
 bool gAllowMateContainment;
-bool gReportColorPrimer;
-bool noUnal; // don't print unaligned reads
+bool noUnal;				// don't print unaligned reads
+string ebwtFile;			// read serialized Ebwt from this file
 MUTEX_T gLock;
 
 static void resetOptions() {
 	mates1.clear();
 	mates2.clear();
 	mates12.clear();
+	ebwtFile		= "";
 	adjustedEbwtFileBase	= "";
-	verbose					= 0;
-	startVerbose			= 0;
-	quiet					= false;
-	sanityCheck				= 0;  // enable expensive sanity checks
-	format					= FASTQ; // default read format is FASTQ
-	origString				= ""; // reference text, or filename(s)
-	seed					= 0; // srandom() seed
-	timing					= 0; // whether to report basic timing data
-	allHits					= false; // for multihits, report just one
-	rangeMode				= false; // report BWT ranges instead of ref locs
-	showVersion				= 0; // just print version and quit?
-	ipause					= 0; // pause before maching?
-	qUpto					= 0xffffffff; // max # of queries to read
-	trim5					= 0; // amount to trim from 5' end
-	trim3					= 0; // amount to trim from 3' end
-	reportOpps				= 0; // whether to report # of other mappings
-	offRate					= -1; // keep default offRate
-	isaRate					= -1; // keep default isaRate
-	mismatches				= 0; // allow 0 mismatches by default
-	solexaQuals				= false; // quality strings are solexa quals, not phred, and subtract 64 (not 33)
-	phred64Quals			= false; // quality chars are phred, but must subtract 64 (not 33)
-	integerQuals			= false; // quality strings are space-separated strings of integers, not ASCII
-	maqLike					= 1;   // do maq-like searching
-	seedLen					= 28;  // seed length (changed in Maq 0.6.4 from 24)
-	seedMms					= 2;   // # mismatches allowed in seed (maq's -n)
-	qualThresh				= 70;  // max qual-weighted hamming dist (maq's -e)
-	maxBtsBetter			= 125; // max # backtracks allowed in half-and-half mode
-	maxBts					= 800; // max # backtracks allowed in half-and-half mode
-	nthreads				= 1;     // number of pthreads operating concurrently
-    reorder                 = false; // reorder SAM output
-	thread_ceiling			= 0;     // max # threads user asked for
-	thread_stealing_dir		= ""; // keep track of pids in this directory
-	thread_stealing			= false; // true iff thread stealing is in use
-	FNAME_SIZE				= 200;
-	outType					= OUTPUT_FULL;  // style of output
-	noRefNames				= false; // true -> print reference indexes; not names
-	dumpAlBase				= "";    // basename of same-format files to dump aligned reads to
-	dumpUnalBase			= "";    // basename of same-format files to dump unaligned reads to
-	dumpMaxBase				= "";    // basename of same-format files to dump reads with more than -m valid alignments to
-	khits					= 1;     // number of hits per read; >1 is much slower
-	mhits					= 0xffffffff; // don't report any hits if there are > mhits
-	better					= false; // true -> guarantee alignments from best possible stratum
-	strata					= false; // true -> don't stop at stratum boundaries
-	partitionSz				= 0;     // output a partitioning key in first field
-	readsPerBatch			= 16;    // # reads to read from input file at once
-	outBatchSz				= 16;    // # alignments to wrote to output file at once
-	noMaqRound				= false; // true -> don't round quals to nearest 10 like maq
-	fileParallel			= false; // separate threads read separate input files in parallel
-	useShmem				= false; // use shared memory to hold the index
-	useMm					= false; // use memory-mapped files to hold the index
-	mmSweep					= false; // sweep through memory-mapped files immediately after mapping
-	stateful				= false; // use stateful aligners
-	prefetchWidth			= 1;     // number of reads to process in parallel w/ --stateful
-	minInsert				= 0;     // minimum insert size (Maq = 0, SOAP = 400)
-	maxInsert				= 250;   // maximum insert size (Maq = 250, SOAP = 600)
-	mate1fw					= true;  // -1 mate aligns in fw orientation on fw strand
-	mate2fw					= false; // -2 mate aligns in rc orientation on fw strand
-	mateFwSet				= false; // true -> user set mate1fw/mate2fw with --ff/--fr/--rf
-	mixedThresh				= 4;     // threshold for when to switch to paired-end mixed mode (see aligner.h)
-	mixedAttemptLim			= 100;   // number of attempts to make in "mixed mode" before giving up on orientation
-	dontReconcileMates		= true;  // suppress pairwise all-versus-all way of resolving mates
-	cacheLimit				= 5;     // ranges w/ size > limit will be cached
-	cacheSize				= 0;     // # words per range cache
-	offBase					= 0;     // offsets are 0-based by default, but configurable
-	tryHard					= false; // set very high maxBts, mixedAttemptLim
-	skipReads				= 0;     // # reads/read pairs to skip
-	nofw					= false; // don't align fw orientation of read
-	norc					= false; // don't align rc orientation of read
-	strandFix				= true;  // attempt to fix strand bias
-	stats					= false; // print performance stats
-	chunkPoolMegabytes		= 64;    // max MB to dedicate to best-first search frames per thread
-	chunkSz					= 256;   // size of single chunk disbursed by ChunkPool (in KB)
-	chunkVerbose			= false; // have chunk allocator output status messages?
-	useV1					= true;
-	reportSe				= false;
-	fastaContLen			= 0;
-	fastaContFreq			= 0;
-	hadoopOut				= false; // print Hadoop status and summary messages
-	fullRef					= false; // print entire reference name instead of just up to 1st space
-	samNoQnameTrunc         = false; // don't truncate at first whitespace?
-	samNoHead				= false; // don't print any header lines in SAM output
-	samNoSQ					= false; // don't print @SQ header lines
-	color					= false; // don't align in colorspace by default
-	colorExEnds				= true;  // true -> nucleotides on either end of decoded cspace alignment should be excluded
-	rgs						= "";    // SAM outputs for @RG header line
-	snpPhred				= 30;    // probability of SNP, for scoring colorspace alignments
-	suppressOuts.clear();            // output fields to suppress
-	sampleMax				= false;
-	defaultMapq				= 255;
-	colorSeq				= false; // true -> show colorspace alignments as colors, not decoded bases
-	colorQual				= false; // true -> show colorspace qualities as original quals, not decoded quals
-	printCost				= false; // true -> print cost and stratum
-	showSeed				= false; // true -> print per-read pseudo-random seed
+	verbose			= 0;
+	startVerbose		= 0;
+	quiet			= false;
+	sanityCheck		= 0;		// enable expensive sanity checks
+	format			= FASTQ;	// default read format is FASTQ
+	origString		= "";		// reference text, or filename(s)
+	seed			= 0;		// srandom() seed
+	timing			= 0;		// whether to report basic timing data
+	allHits			= false;	// for multihits, report just one
+	rangeMode		= false;	// report BWT ranges instead of ref locs
+	showVersion		= 0;		// just print version and quit?
+	ipause			= 0;		// pause before maching?
+	qUpto			= 0xffffffff;	// max # of queries to read
+	trim5			= 0;		// amount to trim from 5' end
+	trim3			= 0;		// amount to trim from 3' end
+	reportOpps		= 0;		// whether to report # of other mappings
+	offRate			= -1;		// keep default offRate
+	isaRate			= -1;		// keep default isaRate
+	mismatches		= 0;		// allow 0 mismatches by default
+	solexaQuals		= false;	// quality strings are solexa quals, not phred, and subtract 64 (not 33)
+	phred64Quals		= false;	// quality chars are phred, but must subtract 64 (not 33)
+	integerQuals		= false;	// quality strings are space-separated strings of integers, not ASCII
+	maqLike			= 1;		// do maq-like searching
+	seedLen			= 28;		// seed length (changed in Maq 0.6.4 from 24)
+	seedMms			= 2;		// # mismatches allowed in seed (maq's -n)
+	qualThresh		= 70;		// max qual-weighted hamming dist (maq's -e)
+	maxBtsBetter		= 125;		// max # backtracks allowed in half-and-half mode
+	maxBts			= 800;		// max # backtracks allowed in half-and-half mode
+	nthreads		= 1;		// number of pthreads operating concurrently
+    reorder			= false;	// reorder SAM output
+	thread_ceiling		= 0;		// max # threads user asked for
+	thread_stealing_dir	= "";		// keep track of pids in this directory
+	thread_stealing		= false;	// true iff thread stealing is in use
+	FNAME_SIZE		= 200;
+	outType			= OUTPUT_FULL;  // style of output
+	noRefNames		= false;	// true -> print reference indexes; not names
+	dumpAlBase		= "";		// basename of same-format files to dump aligned reads to
+	dumpUnalBase		= "";		// basename of same-format files to dump unaligned reads to
+	dumpMaxBase		= "";		// basename of same-format files to dump reads with more than -m valid alignments to
+	khits			= 1;		// number of hits per read; >1 is much slower
+	mhits			= 0xffffffff;	// don't report any hits if there are > mhits
+	better			= false;	// true -> guarantee alignments from best possible stratum
+	strata			= false;	// true -> don't stop at stratum boundaries
+	partitionSz		= 0;		// output a partitioning key in first field
+	readsPerBatch		= 16;		// # reads to read from input file at once
+	outBatchSz		= 16;		// # alignments to wrote to output file at once
+	noMaqRound		= false;	// true -> don't round quals to nearest 10 like maq
+	fileParallel		= false;	// separate threads read separate input files in parallel
+	useShmem		= false;	// use shared memory to hold the index
+	useMm			= false;	// use memory-mapped files to hold the index
+	mmSweep			= false;	// sweep through memory-mapped files immediately after mapping
+	stateful		= false;	// use stateful aligners
+	prefetchWidth		= 1;		// number of reads to process in parallel w/ --stateful
+	minInsert		= 0;		// minimum insert size (Maq = 0, SOAP = 400)
+	maxInsert		= 250;		// maximum insert size (Maq = 250, SOAP = 600)
+	mate1fw			= true;		// -1 mate aligns in fw orientation on fw strand
+	mate2fw			= false;	// -2 mate aligns in rc orientation on fw strand
+	mateFwSet		= false;	// true -> user set mate1fw/mate2fw with --ff/--fr/--rf
+	mixedThresh		= 4;		// threshold for when to switch to paired-end mixed mode (see aligner.h)
+	mixedAttemptLim		= 100;		// number of attempts to make in "mixed mode" before giving up on orientation
+	dontReconcileMates	= true;		// suppress pairwise all-versus-all way of resolving mates
+	cacheLimit		= 5;		// ranges w/ size > limit will be cached
+	cacheSize		= 0;		// # words per range cache
+	offBase			= 0;		// offsets are 0-based by default, but configurable
+	tryHard			= false;	// set very high maxBts, mixedAttemptLim
+	skipReads		= 0;		// # reads/read pairs to skip
+	nofw			= false;	// don't align fw orientation of read
+	norc			= false;	// don't align rc orientation of read
+	strandFix		= true;		// attempt to fix strand bias
+	stats			= false;	// print performance stats
+	chunkPoolMegabytes	= 64;		// max MB to dedicate to best-first search frames per thread
+	chunkSz			= 256;		// size of single chunk disbursed by ChunkPool (in KB)
+	chunkVerbose		= false;	// have chunk allocator output status messages?
+	useV1			= true;
+	reportSe		= false;
+	fastaContLen		= 0;
+	fastaContFreq		= 0;
+	hadoopOut		= false;	// print Hadoop status and summary messages
+	fullRef			= false;	// print entire reference name instead of just up to 1st space
+	samNoQnameTrunc         = false;	// don't truncate at first whitespace?
+	samNoHead		= false;	// don't print any header lines in SAM output
+	samNoSQ			= false;	// don't print @SQ header lines
+	rgs			= "";		// SAM outputs for @RG header line
+	suppressOuts.clear();			// output fields to suppress
+	sampleMax		= false;
+	defaultMapq		= 255;
+	printCost		= false;	// true -> print cost and stratum
+	showSeed		= false;	// true -> print per-read pseudo-random seed
 	qualities.clear();
 	qualities1.clear();
 	qualities2.clear();
 	wrapper.clear();
-	gAllowMateContainment	= false; // true -> alignments where one mate lies inside the other are valid
-	gReportColorPrimer		= false; // true -> print flag with trimmed color primer and downstream color
-	noUnal					= false; // true -> do not report unaligned reads
+	gAllowMateContainment	= false;	// true -> alignments where one mate lies inside the other are valid
+	noUnal			= false;	// true -> do not report unaligned reads
 }
 
 // mating constraints
 
-static const char *short_options = "fF:qbzhcu:rv:s:at3:5:o:e:n:l:w:p:k:m:M:1:2:I:X:x:B:ySCQ:";
+static const char *short_options = "fF:qbzhcu:rv:s:at3:5:o:e:n:l:w:p:k:m:M:1:2:I:X:x:z:B:ySCQ:";
 
 enum {
 	ARG_ORIG = 256,
@@ -321,23 +310,17 @@ enum {
 	ARG_FUZZY,
 	ARG_FULLREF,
 	ARG_USAGE,
-	ARG_SNPPHRED,
-	ARG_SNPFRAC,
 	ARG_SAM_NO_QNAME_TRUNC,
 	ARG_SAM_NOHEAD,
 	ARG_SAM_NOSQ,
 	ARG_SAM_RG,
 	ARG_SUPPRESS_FIELDS,
 	ARG_DEFAULT_MAPQ,
-	ARG_COLOR_SEQ,
-	ARG_COLOR_QUAL,
 	ARG_COST,
-	ARG_COLOR_KEEP_ENDS,
 	ARG_SHOWSEED,
 	ARG_QUALS1,
 	ARG_QUALS2,
 	ARG_ALLOW_CONTAIN,
-	ARG_COLOR_PRIMER,
 	ARG_WRAPPER,
 	ARG_INTERLEAVED_FASTQ,
 	ARG_SAM_NO_UNAL,
@@ -429,19 +412,12 @@ static struct option long_options[] = {
 {(char*)"sam-nohead",                        no_argument,        0,                    ARG_SAM_NOHEAD},
 {(char*)"sam-nosq",                          no_argument,        0,                    ARG_SAM_NOSQ},
 {(char*)"sam-noSQ",                          no_argument,        0,                    ARG_SAM_NOSQ},
-{(char*)"color",                             no_argument,        0,                    'C'},
 {(char*)"sam-RG",                            required_argument,  0,                    ARG_SAM_RG},
-{(char*)"snpphred",                          required_argument,  0,                    ARG_SNPPHRED},
-{(char*)"snpfrac",                           required_argument,  0,                    ARG_SNPFRAC},
 {(char*)"suppress",                          required_argument,  0,                    ARG_SUPPRESS_FIELDS},
 {(char*)"mapq",                              required_argument,  0,                    ARG_DEFAULT_MAPQ},
-{(char*)"col-cseq",                          no_argument,        0,                    ARG_COLOR_SEQ},
-{(char*)"col-cqual",                         no_argument,        0,                    ARG_COLOR_QUAL},
-{(char*)"col-keepends",                      no_argument,        0,                    ARG_COLOR_KEEP_ENDS},
 {(char*)"cost",                              no_argument,        0,                    ARG_COST},
 {(char*)"showseed",                          no_argument,        0,                    ARG_SHOWSEED},
 {(char*)"allow-contain",no_argument,         0,                  ARG_ALLOW_CONTAIN},
-{(char*)"col-primer",                        no_argument,        0,                    ARG_COLOR_PRIMER},
 {(char*)"wrapper",                           required_argument,  0,                    ARG_WRAPPER},
 {(char*)"interleaved",                       required_argument,  0,                    ARG_INTERLEAVED_FASTQ},
 {(char*)"no-unal",                           no_argument,        0,                    ARG_SAM_NO_UNAL},
@@ -465,8 +441,9 @@ static void printUsage(ostream& out) {
 	}
 
 	out << "Usage: " << endl
-        << tool_name << " [options]* <ebwt> {-1 <m1> -2 <m2> | --12 <r> | --interleaved <i> | <s>} [<hit>]" << endl
+        << tool_name << " [options]* -x <ebwt> {-1 <m1> -2 <m2> | --12 <r> | --interleaved <i> | <s>} [<hit>]" << endl
         << endl
+	    << "  <ebwt>  Index filename prefix (minus trailing .X." + gEbwt_ext + ")." << endl
 	    << "  <m1>    Comma-separated list of files containing upstream mates (or the" << endl
 	    << "          sequences themselves, if -c is set) paired with mates in <m2>" << endl
 	    << "  <m2>    Comma-separated list of files containing downstream mates (or the" << endl
@@ -485,7 +462,6 @@ static void printUsage(ostream& out) {
 	    << "                     and aligned at offsets 1, 1+i, 1+2i ... end of reference" << endl
 	    << "  -r                 query input files are raw one-sequence-per-line" << endl
 	    << "  -c                 query sequences given on cmd line (as <mates>, <singles>)" << endl
-	    << "  -C                 reads and index are in colorspace" << endl
 	    << "  -Q/--quals <file>  QV file(s) corresponding to CSFASTA inputs; use with -f -C" << endl
 	    << "  --Q1/--Q2 <file>   same as -Q, but for mate files 1 and 2 respectively" << endl
 	    << "  -s/--skip <int>    skip the first <int> reads/pairs in the input" << endl
@@ -534,13 +510,6 @@ static void printUsage(ostream& out) {
 	    << "  --max <fname>      write reads/pairs over -m limit to file(s) <fname>" << endl
 	    << "  --suppress <cols>  suppresses given columns (comma-delim'ed) in default output" << endl
 	    << "  --fullref          write entire ref name (default: only up to 1st space)" << endl
-	    << "Colorspace:" << endl
-	    << "  --snpphred <int>   Phred penalty for SNP when decoding colorspace (def: 30)" << endl
-	    << "     or" << endl
-	    << "  --snpfrac <dec>    approx. fraction of SNP bases (e.g. 0.001); sets --snpphred" << endl
-	    << "  --col-cseq         print aligned colorspace seqs as colors, not decoded bases" << endl
-	    << "  --col-cqual        print original colorspace quals, not decoded quals" << endl
-	    << "  --col-keepends     keep nucleotides at extreme ends of decoded alignment" << endl
 	    << "SAM:" << endl
 	    << "  -S/--sam           write hits in SAM format" << endl
 	    << "  --mapq <int>       default mapping quality (MAPQ) to print for SAM alignments" << endl
@@ -631,7 +600,7 @@ T parse(const char *s) {
 template<typename T>
 pair<T, T> parsePair(const char *str, char delim) {
 	string s(str);
-	vector<string> ss;
+	EList<string> ss;
 	tokenize(s, delim, ss);
 	pair<T, T> ret;
 	ret.first = parse<T>(ss[0].c_str());
@@ -667,12 +636,14 @@ static void parseOptions(int argc, const char **argv) {
 			case 'q': format = FASTQ; break;
 			case 'r': format = RAW; break;
 			case 'c': format = CMDLINE; break;
-			case 'C': color = true; break;
 			case 'I':
 				minInsert = (uint32_t)parseInt(0, "-I arg must be positive");
 				break;
 			case 'X':
 				maxInsert = (uint32_t)parseInt(1, "-X arg must be at least 1");
+				break;
+			case 'x':
+				ebwtFile = optarg;
 				break;
 			case 's':
 				skipReads = (uint32_t)parseInt(0, "-s arg must be positive");
@@ -683,13 +654,10 @@ static void parseOptions(int argc, const char **argv) {
 			case ARG_RANGE: rangeMode = true; break;
 			case 'S': outType = OUTPUT_SAM; break;
 			case ARG_SHMEM: useShmem = true; break;
-			case ARG_COLOR_SEQ: colorSeq = true; break;
-			case ARG_COLOR_QUAL: colorQual = true; break;
 			case ARG_SHOWSEED: showSeed = true; break;
 			case ARG_ALLOW_CONTAIN: gAllowMateContainment = true; break;
-			case ARG_COLOR_PRIMER: gReportColorPrimer = true; break;
 			case ARG_SUPPRESS_FIELDS: {
-				vector<string> supp;
+				EList<string> supp;
 				tokenize(optarg, ",", supp);
 				for(size_t i = 0; i < supp.size(); i++) {
 					int ii = parseInt(1, "--suppress arg must be at least 1", supp[i].c_str());
@@ -719,24 +687,6 @@ static void parseOptions(int argc, const char **argv) {
 			case ARG_PHRED64: phred64Quals = true; break;
 			case ARG_PHRED33: solexaQuals = false; phred64Quals = false; break;
 			case ARG_NOMAQROUND: noMaqRound = true; break;
-			case ARG_COLOR_KEEP_ENDS: colorExEnds = false; break;
-			case ARG_SNPPHRED: snpPhred = parseInt(0, "--snpphred must be at least 0"); break;
-			case ARG_SNPFRAC: {
-				double p = parse<double>(optarg);
-				if(p <= 0.0) {
-					cerr << "Error: --snpfrac parameter must be > 0.0" << endl;
-					throw 1;
-				}
-				p = (log10(p) * -10);
-				snpPhred = (int)(p + 0.5);
-				if(snpPhred < 10)
-				cout << "snpPhred: " << snpPhred << endl;
-				break;
-			}
-			case 'z': {
-				cerr << "Error: -z/--phased mode is no longer supported" << endl;
-				throw 1;
-			}
 			case ARG_REFIDX: noRefNames = true; break;
 			case ARG_STATEFUL: stateful = true; break;
 			case ARG_REPORTSE: reportSe = true; break;
@@ -773,7 +723,7 @@ static void parseOptions(int argc, const char **argv) {
 			case 'm':
 				mhits = (uint32_t)parseInt(1, "-m arg must be at least 1");
 				break;
-			case 'x':
+			case 'z':
 				mixedThresh = (uint32_t)parseInt(0, "-x arg must be at least 0");
 				break;
 			case ARG_MIXED_ATTEMPTS:
@@ -886,9 +836,9 @@ static void parseOptions(int argc, const char **argv) {
 		reorder = false;
 	}
 	if (reorder == true && outType != OUTPUT_SAM) {
-		cerr << "Bowtie will attempt to reorder its output only when outputting SAM." << endl
-			<< "Please specify the `-S` parameter if you intend on using this option." << endl;
-		reorder = false;
+		cerr << "Bowtie will reorder its output only when outputting SAM." << endl
+		     << "Please specify the `-S` parameter if you intend on using this option." << endl;
+		throw 1;
 	}
 	//bool paired = mates1.size() > 0 || mates2.size() > 0 || mates12.size() > 0;
 	if(rangeMode) {
@@ -906,48 +856,6 @@ static void parseOptions(int argc, const char **argv) {
 		cerr << "Error: " << mates1.size() << " mate files/sequences were specified with -1, but " << mates2.size() << endl
 		     << "mate files/sequences were specified with -2.  The same number of mate files/" << endl
 		     << "sequences must be specified with -1 and -2." << endl;
-		throw 1;
-	}
-	if(qualities.size() && format != FASTA) {
-		cerr << "Error: one or more quality files were specified with -Q but -f was not" << endl
-		     << "enabled.  -Q works only in combination with -f and -C." << endl;
-		throw 1;
-	}
-	if(qualities.size() && !color) {
-		cerr << "Error: one or more quality files were specified with -Q but -C was not" << endl
-		     << "enabled.  -Q works only in combination with -f and -C." << endl;
-		throw 1;
-	}
-	if(qualities1.size() && format != FASTA) {
-		cerr << "Error: one or more quality files were specified with --Q1 but -f was not" << endl
-		     << "enabled.  --Q1 works only in combination with -f and -C." << endl;
-		throw 1;
-	}
-	if(qualities1.size() && !color) {
-		cerr << "Error: one or more quality files were specified with --Q1 but -C was not" << endl
-		     << "enabled.  --Q1 works only in combination with -f and -C." << endl;
-		throw 1;
-	}
-	if(qualities2.size() && format != FASTA) {
-		cerr << "Error: one or more quality files were specified with --Q2 but -f was not" << endl
-		     << "enabled.  --Q2 works only in combination with -f and -C." << endl;
-		throw 1;
-	}
-	if(qualities2.size() && !color) {
-		cerr << "Error: one or more quality files were specified with --Q2 but -C was not" << endl
-		     << "enabled.  --Q2 works only in combination with -f and -C." << endl;
-		throw 1;
-	}
-	if(qualities1.size() > 0 && mates1.size() != qualities1.size()) {
-		cerr << "Error: " << mates1.size() << " mate files/sequences were specified with -1, but " << qualities1.size() << endl
-		     << "quality files were specified with --Q1.  The same number of mate and quality" << endl
-		     << "files must sequences must be specified with -1 and --Q1." << endl;
-		throw 1;
-	}
-	if(qualities2.size() > 0 && mates2.size() != qualities2.size()) {
-		cerr << "Error: " << mates2.size() << " mate files/sequences were specified with -2, but " << qualities2.size() << endl
-		     << "quality files were specified with --Q2.  The same number of mate and quality" << endl
-		     << "files must sequences must be specified with -2 and --Q2." << endl;
 		throw 1;
 	}
 	// Check for duplicate mate input files
@@ -990,19 +898,10 @@ static void parseOptions(int argc, const char **argv) {
 		cerr << "Warning: --shmem overrides --mm..." << endl;
 		useMm = false;
 	}
-	if(snpPhred <= 10 && color && !quiet) {
-		cerr << "Warning: the colorspace SNP penalty (--snpphred) is very low: " << snpPhred << endl;
-	}
 	if(!mateFwSet) {
-		if(color) {
-			// Set colorspace default (--ff)
-			mate1fw = true;
-			mate2fw = true;
-		} else {
-			// Set nucleotide space default (--fr)
-			mate1fw = true;
-			mate2fw = false;
-		}
+		// Set nucleotide space default (--fr)
+		mate1fw = true;
+		mate2fw = false;
 	}
 	if(outType != OUTPUT_FULL && suppressOuts.count() > 0 && !quiet) {
 		cerr << "Warning: Ignoring --suppress because output type is not default." << endl;
@@ -1021,51 +920,51 @@ static void parseOptions(int argc, const char **argv) {
 
 static const char *argv0 = NULL;
 
-#define FINISH_READ(p) \
+#define FINISH_READ(p)							\
 	/* Don't do finishRead if the read isn't legit or if the read was skipped by the doneMask */ \
-	if(get_read_ret.first) { \
-		sink->finishRead(*p, true, !skipped); \
-		get_read_ret.first = false; \
-	} \
+	if(get_read_ret.first) {					\
+		sink->finishRead(*p, true, !skipped);			\
+		get_read_ret.first = false;				\
+	}								\
 	skipped = false;
 
 /// Macro for getting the next read, possibly aborting depending on
 /// whether the result is empty or the patid exceeds the limit, and
 /// marshaling the read into convenient variables.
-#define GET_READ(p) \
-	if(get_read_ret.second) break; \
-	get_read_ret = p->nextReadPair(); \
-	if(p->rdid() >= qUpto) { \
-		get_read_ret = make_pair(false, true); \
-	} \
-	if(!get_read_ret.first) { \
-		if(get_read_ret.second) { \
-			break; \
-		} \
-		continue; \
-	} \
-	String<Dna5>& patFw  = p->bufa().patFw;  \
-	patFw.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<Dna5>& patRc  = p->bufa().patRc;  \
-	patRc.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<char>& qual = p->bufa().qual; \
-	qual.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<char>& qualRev = p->bufa().qualRev; \
-	qualRev.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<Dna5>& patFwRev  = p->bufa().patFwRev;  \
-	patFwRev.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<Dna5>& patRcRev  = p->bufa().patRcRev;  \
-	patRcRev.data_begin += 0; /* suppress "unused" compiler warning */ \
-	String<char>& name   = p->bufa().name;   \
-	name.data_begin += 0; /* suppress "unused" compiler warning */ \
-	uint32_t      patid  = (uint32_t)p->rdid();       \
+#define GET_READ(p)					\
+	if(get_read_ret.second) break;			\
+	get_read_ret = p->nextReadPair();		\
+	if(p->rdid() >= qUpto) {			\
+		get_read_ret = make_pair(false, true);	\
+	}						\
+	if(!get_read_ret.first) {			\
+		if(get_read_ret.second) {		\
+			break;				\
+		}					\
+		continue;				\
+	}						\
+	BTDnaString& patFw  = p->bufa().patFw;		\
+	patFw.length();					\
+	BTDnaString& patRc  = p->bufa().patRc;		\
+	patRc.length();					\
+	BTString& qual = p->bufa().qual;		\
+	qual.length();					\
+	BTString& qualRev = p->bufa().qualRev;		\
+	qualRev.length();				\
+	BTDnaString& patFwRev  = p->bufa().patFwRev;	\
+	patFwRev.length();				\
+	BTDnaString& patRcRev  = p->bufa().patRcRev;	\
+	patRcRev.length();				\
+	BTString& name   = p->bufa().name;		\
+	name.length();					\
+	uint32_t      patid  = (uint32_t)p->rdid();	\
 	params.setPatId(patid);
 
-#define WORKER_EXIT() \
-	patsrcFact->destroy(patsrc); \
-	delete patsrcFact; \
-	sinkFact->destroy(sink); \
-	delete sinkFact; \
+#define WORKER_EXIT()				\
+	patsrcFact->destroy(patsrc);		\
+	delete patsrcFact;			\
+	sinkFact->destroy(sink);		\
+	delete sinkFact;			\
 	return;
 
 #ifdef CHUD_PROFILING
@@ -1122,8 +1021,8 @@ createSinkFactory(HitSink& _sink, size_t threadId) {
 }
 
 void increment_thread_counter() {
-#ifdef WITH_TBB
-	thread_counter.fetch_and_increment();
+#if (__cplusplus >= 201103)
+	thread_counter.fetch_add(1);
 #else
 	ThreadSafe ts(&thread_counter_mutex);
 	thread_counter++;
@@ -1131,8 +1030,8 @@ void increment_thread_counter() {
 }
 
 void decrement_thread_counter() {
-#ifdef WITH_TBB
-	thread_counter.fetch_and_decrement();
+#if (__cplusplus >= 201103)
+	thread_counter.fetch_sub(1);
 #else
 	ThreadSafe ts(&thread_counter_mutex);
 	thread_counter--;
@@ -1150,7 +1049,7 @@ void del_pid(const char* dirname,int pid) {
 	}
 	unlink(fname);
 	free(fname);
-} 
+}
 
 //from http://stackoverflow.com/questions/18100097/portable-way-to-check-if-directory-exists-windows-linux-c
 static void write_pid(const char* dirname,int pid) {
@@ -1223,10 +1122,10 @@ static bool steal_thread(int pid, int orig_nthreads) {
  */
 static PatternComposer*   exactSearch_patsrc;
 static HitSink*               exactSearch_sink;
-static Ebwt<String<Dna> >*    exactSearch_ebwt;
-static vector<String<Dna5> >* exactSearch_os;
+static Ebwt*                  exactSearch_ebwt;
+static EList<BTRefString>*   exactSearch_os;
 static BitPairReference*      exactSearch_refs;
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void exactSearchWorker::operator()() const {
 static void exactSearchWorker(void *vp) {
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -1238,25 +1137,23 @@ static void exactSearchWorker(void *vp) {
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer& _patsrc = *exactSearch_patsrc;
-	HitSink& _sink               = *exactSearch_sink;
-	Ebwt<String<Dna> >& ebwt     = *exactSearch_ebwt;
-	vector<String<Dna5> >& os    = *exactSearch_os;
-	const BitPairReference* refs =  exactSearch_refs;
+	PatternComposer&	_patsrc = *exactSearch_patsrc;
+	HitSink&		_sink   = *exactSearch_sink;
+	Ebwt&			ebwt    = *exactSearch_ebwt;
+	EList<BTRefString >&	os	= *exactSearch_os;
 
 	// Per-thread initialization
 	PatternSourcePerThreadFactory *patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
 	PatternSourcePerThread *patsrc = patsrcFact->create();
 	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 	HitSinkPerThread* sink = sinkFact->create();
-	EbwtSearchParams<String<Dna> > params(
+	EbwtSearchParams params(
 	        *sink,      // HitSink
 	        os,         // reference sequences
 	        true,       // read is forward
 	        true);       // index is forward
 	GreedyDFSRangeSource bt(
 	        &ebwt, params,
-	        refs,           // reference sequence (for colorspace)
 	        0xffffffff,     // qualThresh
 	        0xffffffff,     // max backtracks (no max)
 	        0,              // reportPartials (don't)
@@ -1272,7 +1169,7 @@ static void exactSearchWorker(void *vp) {
 #ifdef PER_THREAD_TIMING
 	uint64_t ncpu_changeovers = 0;
 	uint64_t nnuma_changeovers = 0;
-	
+
 	int current_cpu = 0, current_node = 0;
 	get_cpu_and_node(current_cpu, current_node);
 
@@ -1312,8 +1209,8 @@ static void exactSearchWorker(void *vp) {
 		std::cout << ss.str();
 	}
 #endif
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
 	WORKER_EXIT();
 }
@@ -1321,7 +1218,7 @@ static void exactSearchWorker(void *vp) {
 /**
  * A statefulness-aware worker driver.  Uses UnpairedExactAlignerV1.
  */
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void exactSearchWorkerStateful::operator()() const {
 static void exactSearchWorkerStateful(void *vp) {
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -1333,11 +1230,11 @@ static void exactSearchWorkerStateful(void *vp) {
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer& _patsrc = *exactSearch_patsrc;
-	HitSink& _sink               = *exactSearch_sink;
-	Ebwt<String<Dna> >& ebwt     = *exactSearch_ebwt;
-	vector<String<Dna5> >& os    = *exactSearch_os;
-	BitPairReference* refs       =  exactSearch_refs;
+	PatternComposer&	_patsrc = *exactSearch_patsrc;
+	HitSink&		_sink   = *exactSearch_sink;
+	Ebwt&			ebwt    = *exactSearch_ebwt;
+	EList<BTRefString >&	os	= *exactSearch_os;
+	BitPairReference*	refs    = exactSearch_refs;
 
 	// Global initialization
 	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
@@ -1346,7 +1243,6 @@ static void exactSearchWorkerStateful(void *vp) {
 	ChunkPool *pool = new ChunkPool(chunkSz * 1024, chunkPoolMegabytes * 1024 * 1024, chunkVerbose);
 	UnpairedExactAlignerV1Factory alSEfact(
 			ebwt,
-			NULL,
 			!nofw,
 			!norc,
 			_sink,
@@ -1366,8 +1262,6 @@ static void exactSearchWorkerStateful(void *vp) {
 			seed);
 	PairedExactAlignerV1Factory alPEfact(
 			ebwt,
-			NULL,
-			color,
 			!nofw,
 			!norc,
 			useV1,
@@ -1413,8 +1307,8 @@ static void exactSearchWorkerStateful(void *vp) {
 	delete patsrcFact;
 	delete sinkFact;
 	delete pool;
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
 	return;
 }
@@ -1438,8 +1332,8 @@ static void exactSearchWorkerStateful(void *vp) {
  */
 static void exactSearch(PatternComposer& _patsrc,
                         HitSink& _sink,
-                        Ebwt<String<Dna> >& ebwt,
-                        vector<String<Dna5> >& os)
+                        Ebwt& ebwt,
+                        EList<BTRefString >& os)
 {
 	exactSearch_patsrc = &_patsrc;
 	exactSearch_sink   = &_sink;
@@ -1451,28 +1345,28 @@ static void exactSearch(PatternComposer& _patsrc,
 		// Load the rest of (vast majority of) the backward Ebwt into
 		// memory
 		Timer _t(cerr, "Time loading forward index: ", timing);
-		ebwt.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose);
+		ebwt.loadIntoMemory(-1, !noRefNames, startVerbose);
 	}
 
 	BitPairReference *refs = NULL;
 	bool pair = mates1.size() > 0 || mates12.size() > 0;
-	if(color || (pair && mixedThresh < 0xffffffff)) {
+	if((pair && mixedThresh < 0xffffffff)) {
 		Timer _t(cerr, "Time loading reference: ", timing);
-		refs = new BitPairReference(adjustedEbwtFileBase, color, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
+		refs = new BitPairReference(adjustedEbwtFileBase, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
 		if(!refs->loaded()) throw 1;
 	}
 	exactSearch_refs   = refs;
 	int tids[max(nthreads, thread_ceiling)];
-#ifdef WITH_TBB
-	vector<std::thread*> threads;
-	vector<thread_tracking_pair> tps;
-	tps.reserve(max(nthreads, thread_ceiling));
+#if (__cplusplus >= 201103L)
+	EList<std::thread*> threads;
+	EList<thread_tracking_pair> tps;
+	tps.resizeExact(max(nthreads, thread_ceiling));
 #else
-	vector<tthread::thread*> threads;
+	EList<tthread::thread*> threads;
 #endif
 
-#ifdef WITH_TBB
-	tbb::atomic<int> all_threads_done;
+#if (__cplusplus >= 201103L)
+	std::atomic<int> all_threads_done;
 	all_threads_done = 0;
 #endif
 	CHUD_START();
@@ -1487,11 +1381,11 @@ static void exactSearch(PatternComposer& _patsrc,
 			thread_counter = 0;
 		}
 #endif
-		
+
 		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i;
-#ifdef WITH_TBB
-			tps[i].tid = i;
+#if (__cplusplus >= 201103L)
+			tps[i].tid = tids[i];
 			tps[i].done = &all_threads_done;
 			if (i == nthreads - 1) {
 				if(stateful) {
@@ -1534,10 +1428,10 @@ static void exactSearch(PatternComposer& _patsrc,
 				sleep(1);
 			}
 			while(thread_counter > 0) {
-				if(steal_thread(pid, orig_threads)) { 
+				if(steal_thread(pid, orig_threads)) {
 					nthreads++;
 					tids[nthreads-1] = nthreads;
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 					tps[nthreads-1].tid = nthreads - 1;
 					tps[nthreads-1].done = &all_threads_done;
 					if(stateful) {
@@ -1563,8 +1457,8 @@ static void exactSearch(PatternComposer& _patsrc,
 			}
 		}
 #endif
-		
-#ifdef WITH_TBB
+
+#if (__cplusplus >= 201103L)
 		while(all_threads_done < nthreads) {
 			SLEEP(10);
 		}
@@ -1598,19 +1492,19 @@ static void exactSearch(PatternComposer& _patsrc,
  * Forward Ebwt (ebwtFw) is already loaded into memory and backward
  * Ebwt (ebwtBw) is not loaded into memory.
  */
-static PatternComposer*           mismatchSearch_patsrc;
-static HitSink*                       mismatchSearch_sink;
-static Ebwt<String<Dna> >*            mismatchSearch_ebwtFw;
-static Ebwt<String<Dna> >*            mismatchSearch_ebwtBw;
-static vector<String<Dna5> >*         mismatchSearch_os;
-static SyncBitset*                    mismatchSearch_doneMask;
-static SyncBitset*                    mismatchSearch_hitMask;
-static BitPairReference*              mismatchSearch_refs;
+static PatternComposer*         mismatchSearch_patsrc;
+static HitSink*                 mismatchSearch_sink;
+static Ebwt*			mismatchSearch_ebwtFw;
+static Ebwt*			mismatchSearch_ebwtBw;
+static EList<BTRefString >*    mismatchSearch_os;
+static SyncBitset*              mismatchSearch_doneMask;
+static SyncBitset*              mismatchSearch_hitMask;
+static BitPairReference*        mismatchSearch_refs;
 
 /**
  * A statefulness-aware worker driver.  Uses Unpaired/Paired1mmAlignerV1.
  */
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void mismatchSearchWorkerFullStateful::operator()() const {
 static void mismatchSearchWorkerFullStateful(void *vp) {
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -1622,12 +1516,12 @@ static void mismatchSearchWorkerFullStateful(void *vp) {
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer&   _patsrc = *mismatchSearch_patsrc;
-	HitSink&               _sink   = *mismatchSearch_sink;
-	Ebwt<String<Dna> >&    ebwtFw  = *mismatchSearch_ebwtFw;
-	Ebwt<String<Dna> >&    ebwtBw  = *mismatchSearch_ebwtBw;
-	vector<String<Dna5> >& os      = *mismatchSearch_os;
-	BitPairReference*      refs    =  mismatchSearch_refs;
+	PatternComposer&	_patsrc = *mismatchSearch_patsrc;
+	HitSink&		_sink   = *mismatchSearch_sink;
+	Ebwt&			ebwtFw  = *mismatchSearch_ebwtFw;
+	Ebwt&			ebwtBw  = *mismatchSearch_ebwtBw;
+	EList<BTRefString >& os      = *mismatchSearch_os;
+	BitPairReference*	refs    = mismatchSearch_refs;
 
 	// Global initialization
 	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
@@ -1657,7 +1551,6 @@ static void mismatchSearchWorkerFullStateful(void *vp) {
 	Paired1mmAlignerV1Factory alPEfact(
 			ebwtFw,
 			&ebwtBw,
-			color,
 			!nofw,
 			!norc,
 			useV1,
@@ -1699,8 +1592,8 @@ static void mismatchSearchWorkerFullStateful(void *vp) {
 	if(thread_stealing) {
 		decrement_thread_counter();
 	}
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
 
 	delete patsrcFact;
@@ -1708,7 +1601,7 @@ static void mismatchSearchWorkerFullStateful(void *vp) {
 	delete pool;
 	return;
 }
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void mismatchSearchWorkerFull::operator()() const {
 static void mismatchSearchWorkerFull(void *vp){
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -1720,26 +1613,24 @@ static void mismatchSearchWorkerFull(void *vp){
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer&   _patsrc   = *mismatchSearch_patsrc;
-	HitSink&               _sink     = *mismatchSearch_sink;
-	Ebwt<String<Dna> >&    ebwtFw    = *mismatchSearch_ebwtFw;
-	Ebwt<String<Dna> >&    ebwtBw    = *mismatchSearch_ebwtBw;
-	vector<String<Dna5> >& os        = *mismatchSearch_os;
-	const BitPairReference* refs     =  mismatchSearch_refs;
+	PatternComposer&	_patsrc = *mismatchSearch_patsrc;
+	HitSink&		_sink   = *mismatchSearch_sink;
+	Ebwt&			ebwtFw  = *mismatchSearch_ebwtFw;
+	Ebwt&			ebwtBw  = *mismatchSearch_ebwtBw;
+	EList<BTRefString >& os      = *mismatchSearch_os;
 
 	// Per-thread initialization
 	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
 	PatternSourcePerThread* patsrc = patsrcFact->create();
 	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
 	HitSinkPerThread* sink = sinkFact->create();
-	EbwtSearchParams<String<Dna> > params(
+	EbwtSearchParams params(
 	        *sink,      // HitSinkPerThread
 	        os,         // reference sequences
 	        true,       // read is forward
 	        false);     // index is mirror index
 	GreedyDFSRangeSource bt(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        0xffffffff,     // qualThresh
 	        0xffffffff,     // max backtracks (no max)
 	        0,              // reportPartials (don't)
@@ -1755,7 +1646,7 @@ static void mismatchSearchWorkerFull(void *vp){
 #ifdef PER_THREAD_TIMING
 	uint64_t ncpu_changeovers = 0;
 	uint64_t nnuma_changeovers = 0;
-	
+
 	int current_cpu = 0, current_node = 0;
 	get_cpu_and_node(current_cpu, current_node);
 
@@ -1763,7 +1654,7 @@ static void mismatchSearchWorkerFull(void *vp){
 	std::string msg;
 	ss << "thread: " << tid << " time: ";
 	msg = ss.str();
-	{	
+	{
 		Timer timer(std::cout, msg.c_str());
 #endif
 		while(true) {
@@ -1781,7 +1672,7 @@ static void mismatchSearchWorkerFull(void *vp){
 #endif
 			FINISH_READ(patsrc);
 			GET_READ(patsrc);
-			uint32_t plen = (uint32_t)length(patFw);
+			uint32_t plen = (uint32_t)patFw.length();
 			uint32_t s = plen;
 			uint32_t s3 = s >> 1; // length of 3' half of seed
 			uint32_t s5 = (s >> 1) + (s & 1); // length of 5' half of seed
@@ -1799,8 +1690,8 @@ static void mismatchSearchWorkerFull(void *vp){
 		std::cout << ss.str();
 	}
 #endif
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
     	WORKER_EXIT();
 }
@@ -1811,9 +1702,9 @@ static void mismatchSearchWorkerFull(void *vp){
  */
 static void mismatchSearchFull(PatternComposer& _patsrc,
                                HitSink& _sink,
-                               Ebwt<String<Dna> >& ebwtFw,
-                               Ebwt<String<Dna> >& ebwtBw,
-                               vector<String<Dna5> >& os)
+                               Ebwt& ebwtFw,
+                               Ebwt& ebwtBw,
+                               EList<BTRefString >& os)
 {
 	mismatchSearch_patsrc       = &_patsrc;
 	mismatchSearch_sink         = &_sink;
@@ -1828,34 +1719,34 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 	{
 		// Load the other half of the index into memory
 		Timer _t(cerr, "Time loading forward index: ", timing);
-		ebwtFw.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose);
+		ebwtFw.loadIntoMemory(-1, !noRefNames, startVerbose);
 	}
 	{
 		// Load the other half of the index into memory
 		Timer _t(cerr, "Time loading mirror index: ", timing);
-		ebwtBw.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose);
+		ebwtBw.loadIntoMemory(-1, !noRefNames, startVerbose);
 	}
 	// Create range caches, which are shared among all aligners
 	BitPairReference *refs = NULL;
 	bool pair = mates1.size() > 0 || mates12.size() > 0;
-	if(color || (pair && mixedThresh < 0xffffffff)) {
+	if(pair && mixedThresh < 0xffffffff) {
 		Timer _t(cerr, "Time loading reference: ", timing);
-		refs = new BitPairReference(adjustedEbwtFileBase, color, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
+		refs = new BitPairReference(adjustedEbwtFileBase, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
 		if(!refs->loaded()) throw 1;
 	}
 	mismatchSearch_refs = refs;
 
 	int tids[max(nthreads, thread_ceiling)];
-#ifdef WITH_TBB
-	vector<std::thread*> threads;
-	vector<thread_tracking_pair> tps;
-	tps.reserve(max(nthreads, thread_ceiling));
+#if (__cplusplus >= 201103L)
+	EList<std::thread*> threads;
+	EList<thread_tracking_pair> tps;
+	tps.resizeExact(max(nthreads, thread_ceiling));
 #else
-	vector<tthread::thread*> threads;
+	EList<tthread::thread*> threads;
 #endif
 
-#ifdef WITH_TBB
-	tbb::atomic<int> all_threads_done;
+#if (__cplusplus >= 201103L)
+	std::atomic<int> all_threads_done;
 	all_threads_done = 0;
 #endif
 
@@ -1874,8 +1765,8 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 
 		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i;
-#ifdef WITH_TBB
-			tps[i].tid = i;
+#if (__cplusplus >= 201103L)
+			tps[i].tid = tids[i];
 			tps[i].done = &all_threads_done;
 			if (i == nthreads - 1) {
 				if(stateful) {
@@ -1921,7 +1812,7 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 				if(steal_thread(pid, orig_threads)) {
 					nthreads++;
 					tids[nthreads-1] = nthreads;
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 					tps[nthreads-1].tid = nthreads - 1;
 					tps[nthreads-1].done = &all_threads_done;
 					if(stateful) {
@@ -1947,8 +1838,8 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 			}
 		}
 #endif
-		
-#ifdef WITH_TBB
+
+#if (__cplusplus >= 201103L)
 		while(all_threads_done < nthreads) {
 			SLEEP(10);
 		}
@@ -1980,7 +1871,7 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 	/* Load the forward index into memory if necessary */ \
 	if(!ebwtFw.isInMemory()) { \
 		Timer _t(cerr, "Time loading forward index: ", timing); \
-		ebwtFw.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose); \
+		ebwtFw.loadIntoMemory(-1, !noRefNames, startVerbose); \
 	} \
 	assert(ebwtFw.isInMemory()); \
 	_patsrc.reset(); /* rewind pattern source to first pattern */ \
@@ -1993,7 +1884,7 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 	/* Load the forward index into memory if necessary */ \
 	if(!ebwtBw.isInMemory()) { \
 		Timer _t(cerr, "Time loading mirror index: ", timing); \
-		ebwtBw.loadIntoMemory(color ? 1 : 0, !noRefNames, startVerbose); \
+		ebwtBw.loadIntoMemory(-1, !noRefNames, startVerbose);   \
 	} \
 	assert(ebwtBw.isInMemory()); \
 	_patsrc.reset(); /* rewind pattern source to first pattern */ \
@@ -2001,7 +1892,7 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 
 #define ASSERT_NO_HITS_FW(ebwtfw) \
 	if(sanityCheck && os.size() > 0) { \
-		vector<Hit> hits; \
+		EList<Hit> hits; \
 		uint32_t threeRevOff = (seedMms <= 3) ? s : 0; \
 		uint32_t twoRevOff   = (seedMms <= 2) ? s : 0; \
 		uint32_t oneRevOff   = (seedMms <= 1) ? s : 0; \
@@ -2024,7 +1915,7 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 
 #define ASSERT_NO_HITS_RC(ebwtfw) \
 	if(sanityCheck && os.size() > 0) { \
-		vector<Hit> hits; \
+		EList<Hit> hits; \
 		uint32_t threeRevOff = (seedMms <= 3) ? s : 0; \
 		uint32_t twoRevOff   = (seedMms <= 2) ? s : 0; \
 		uint32_t oneRevOff   = (seedMms <= 1) ? s : 0; \
@@ -2045,21 +1936,21 @@ static void mismatchSearchFull(PatternComposer& _patsrc,
 		assert_eq(0, hits.size()); \
 	}
 
-static PatternComposer*           twoOrThreeMismatchSearch_patsrc;
-static HitSink*                       twoOrThreeMismatchSearch_sink;
-static Ebwt<String<Dna> >*            twoOrThreeMismatchSearch_ebwtFw;
-static Ebwt<String<Dna> >*            twoOrThreeMismatchSearch_ebwtBw;
-static vector<String<Dna5> >*         twoOrThreeMismatchSearch_os;
-static SyncBitset*                    twoOrThreeMismatchSearch_doneMask;
-static SyncBitset*                    twoOrThreeMismatchSearch_hitMask;
-static bool                           twoOrThreeMismatchSearch_two;
-static BitPairReference*              twoOrThreeMismatchSearch_refs;
+static PatternComposer*         twoOrThreeMismatchSearch_patsrc;
+static HitSink*                 twoOrThreeMismatchSearch_sink;
+static Ebwt*			twoOrThreeMismatchSearch_ebwtFw;
+static Ebwt*			twoOrThreeMismatchSearch_ebwtBw;
+static EList<BTRefString >*  twoOrThreeMismatchSearch_os;
+static SyncBitset*              twoOrThreeMismatchSearch_doneMask;
+static SyncBitset*              twoOrThreeMismatchSearch_hitMask;
+static bool                     twoOrThreeMismatchSearch_two;
+static BitPairReference*        twoOrThreeMismatchSearch_refs;
 
 
 /**
  * A statefulness-aware worker driver.  Uses UnpairedExactAlignerV1.
  */
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void twoOrThreeMismatchSearchWorkerStateful::operator()() const {
 static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -2071,13 +1962,13 @@ static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer&   _patsrc = *twoOrThreeMismatchSearch_patsrc;
-	HitSink&               _sink   = *twoOrThreeMismatchSearch_sink;
-	Ebwt<String<Dna> >&    ebwtFw  = *twoOrThreeMismatchSearch_ebwtFw;
-	Ebwt<String<Dna> >&    ebwtBw  = *twoOrThreeMismatchSearch_ebwtBw;
-	vector<String<Dna5> >& os      = *twoOrThreeMismatchSearch_os;
-	BitPairReference*      refs    =  twoOrThreeMismatchSearch_refs;
-	static bool            two     =  twoOrThreeMismatchSearch_two;
+	PatternComposer&	_patsrc = *twoOrThreeMismatchSearch_patsrc;
+	HitSink&		_sink   = *twoOrThreeMismatchSearch_sink;
+	Ebwt&			ebwtFw  = *twoOrThreeMismatchSearch_ebwtFw;
+	Ebwt&			ebwtBw  = *twoOrThreeMismatchSearch_ebwtBw;
+	EList<BTRefString >& os      = *twoOrThreeMismatchSearch_os;
+	BitPairReference*	refs    = twoOrThreeMismatchSearch_refs;
+	static bool		two     = twoOrThreeMismatchSearch_two;
 
 	// Global initialization
 	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
@@ -2108,7 +1999,6 @@ static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	Paired23mmAlignerV1Factory alPEfact(
 			ebwtFw,
 			&ebwtBw,
-			color,
 			!nofw,
 			!norc,
 			useV1,
@@ -2148,8 +2038,8 @@ static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 		// MultiAligner must be destroyed before patsrcFact
 	}
 
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
 	if(thread_stealing) {
 		decrement_thread_counter();
@@ -2161,7 +2051,7 @@ static void twoOrThreeMismatchSearchWorkerStateful(void *vp) {
 	return;
 }
 
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void twoOrThreeMismatchSearchWorkerFull::operator()() const {
 static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -2173,26 +2063,24 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer&           _patsrc  = *twoOrThreeMismatchSearch_patsrc;
-	HitSink&                       _sink    = *twoOrThreeMismatchSearch_sink;
-	vector<String<Dna5> >&         os       = *twoOrThreeMismatchSearch_os;
-	bool                           two      = twoOrThreeMismatchSearch_two;
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
-	PatternSourcePerThread* patsrc = patsrcFact->create();
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
-	HitSinkPerThread* sink = sinkFact->create();
+	PatternComposer&		_patsrc	   = *twoOrThreeMismatchSearch_patsrc;
+	HitSink&			_sink	   = *twoOrThreeMismatchSearch_sink;
+	EList<BTRefString >&         os	   = *twoOrThreeMismatchSearch_os;
+	bool				two	   = twoOrThreeMismatchSearch_two;
+	PatternSourcePerThreadFactory*	patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	PatternSourcePerThread*		patsrc	   = patsrcFact->create();
+	HitSinkPerThreadFactory*	sinkFact   = createSinkFactory(_sink, tid);
+	HitSinkPerThread*		sink	   = sinkFact->create();
 	/* Per-thread initialization */
-	EbwtSearchParams<String<Dna> > params(
-			*sink,       /* HitSink */
+	EbwtSearchParams params(
+		*sink,       /* HitSink */
 	        os,          /* reference sequences */
 	        true,        /* read is forward */
 	        true);       /* index is forward */
-	Ebwt<String<Dna> >& ebwtFw = *twoOrThreeMismatchSearch_ebwtFw;
-	Ebwt<String<Dna> >& ebwtBw = *twoOrThreeMismatchSearch_ebwtBw;
-	const BitPairReference* refs = twoOrThreeMismatchSearch_refs;
+	Ebwt& ebwtFw = *twoOrThreeMismatchSearch_ebwtFw;
+	Ebwt& ebwtBw = *twoOrThreeMismatchSearch_ebwtBw;
 	GreedyDFSRangeSource btr1(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        0xffffffff,     // qualThresh
 	        // Do not impose maximums in 2/3-mismatch mode
 	        0xffffffff,     // max backtracks (no limit)
@@ -2206,7 +2094,6 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 	        false);         // considerQuals
 	GreedyDFSRangeSource bt2(
 	        &ebwtBw, params,
-	        refs,           // reference sequence (for colorspace)
 	        0xffffffff,     // qualThresh
 	        // Do not impose maximums in 2/3-mismatch mode
 	        0xffffffff,     // max backtracks (no limit)
@@ -2220,7 +2107,6 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 	        false);         // considerQuals
 	GreedyDFSRangeSource bt3(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        0xffffffff,     // qualThresh (none)
 	        // Do not impose maximums in 2/3-mismatch mode
 	        0xffffffff,     // max backtracks (no limit)
@@ -2234,7 +2120,6 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 	        false);         // considerQuals
 	GreedyDFSRangeSource bthh3(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        0xffffffff,     // qualThresh
 	        // Do not impose maximums in 2/3-mismatch mode
 	        0xffffffff,     // max backtracks (no limit)
@@ -2252,7 +2137,7 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 #ifdef PER_THREAD_TIMING
 	uint64_t ncpu_changeovers = 0;
 	uint64_t nnuma_changeovers = 0;
-	
+
 	int current_cpu = 0, current_node = 0;
 	get_cpu_and_node(current_cpu, current_node);
 
@@ -2279,7 +2164,7 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 			FINISH_READ(patsrc);
 			GET_READ(patsrc);
 			patid += 0; // kill unused variable warning
-			uint32_t plen = (uint32_t)length(patFw);
+			uint32_t plen = (uint32_t)patFw.length();
 			uint32_t s = plen;
 			uint32_t s3 = s >> 1; // length of 3' half of seed
 			uint32_t s5 = (s >> 1) + (s & 1); // length of 5' half of seed
@@ -2301,20 +2186,19 @@ static void twoOrThreeMismatchSearchWorkerFull(void *vp) {
 		std::cout << ss.str();
 	}
 #endif
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
 	// Threads join at end of Phase 1
 	WORKER_EXIT();
 }
 
-template<typename TStr>
 static void twoOrThreeMismatchSearchFull(
 		PatternComposer& _patsrc,   /// pattern source
 		HitSink& _sink,                 /// hit sink
-		Ebwt<TStr>& ebwtFw,             /// index of original text
-		Ebwt<TStr>& ebwtBw,             /// index of mirror text
-		vector<String<Dna5> >& os,      /// text strings, if available (empty otherwise)
+		Ebwt& ebwtFw,             /// index of original text
+		Ebwt& ebwtBw,             /// index of mirror text
+		EList<BTRefString >& os,      /// text strings, if available (empty otherwise)
 		bool two = true)                /// true -> 2, false -> 3
 {
 	// Global initialization
@@ -2323,19 +2207,19 @@ static void twoOrThreeMismatchSearchFull(
 	{
 		// Load the other half of the index into memory
 		Timer _t(cerr, "Time loading forward index: ", timing);
-		ebwtFw.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose);
+		ebwtFw.loadIntoMemory(-1, !noRefNames, startVerbose);
 	}
 	{
 		// Load the other half of the index into memory
 		Timer _t(cerr, "Time loading mirror index: ", timing);
-		ebwtBw.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose);
+		ebwtBw.loadIntoMemory(-1, !noRefNames, startVerbose);
 	}
 	// Create range caches, which are shared among all aligners
 	BitPairReference *refs = NULL;
 	bool pair = mates1.size() > 0 || mates12.size() > 0;
-	if(color || (pair && mixedThresh < 0xffffffff)) {
+	if(pair && mixedThresh < 0xffffffff) {
 		Timer _t(cerr, "Time loading reference: ", timing);
-		refs = new BitPairReference(adjustedEbwtFileBase, color, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
+		refs = new BitPairReference(adjustedEbwtFileBase, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
 		if(!refs->loaded()) throw 1;
 	}
 	twoOrThreeMismatchSearch_refs     = refs;
@@ -2349,16 +2233,16 @@ static void twoOrThreeMismatchSearchFull(
 	twoOrThreeMismatchSearch_two      = two;
 
 	int tids[max(nthreads, thread_ceiling)];
-#ifdef WITH_TBB
-	vector<std::thread*> threads;
-	vector<thread_tracking_pair> tps;
-	tps.reserve(max(nthreads, thread_ceiling));
+#if (__cplusplus >= 201103L)
+	EList<std::thread*> threads;
+	EList<thread_tracking_pair> tps;
+	tps.resizeExact(max(nthreads, thread_ceiling));
 #else
-	vector<tthread::thread*> threads;
+	EList<tthread::thread*> threads;
 #endif
 
-#ifdef WITH_TBB
-	tbb::atomic<int> all_threads_done;
+#if (__cplusplus >= 201103L)
+	std::atomic<int> all_threads_done;
 	all_threads_done = 0;
 #endif
 
@@ -2377,8 +2261,8 @@ static void twoOrThreeMismatchSearchFull(
 
 		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i;
-#ifdef WITH_TBB
-			tps[i].tid = i;
+#if (__cplusplus >= 201103L)
+			tps[i].tid = tids[i];
 			tps[i].done = &all_threads_done;
 			if (i == nthreads - 1) {
 				if(stateful) {
@@ -2424,7 +2308,7 @@ static void twoOrThreeMismatchSearchFull(
 				if(steal_thread(pid, orig_threads)) {
 					nthreads++;
 					tids[nthreads-1] = nthreads;
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 					tps[nthreads-1].tid = nthreads - 1;
 					tps[nthreads-1].done = &all_threads_done;
 					if(stateful) {
@@ -2450,8 +2334,8 @@ static void twoOrThreeMismatchSearchFull(
 			}
 		}
 #endif
-		
-#ifdef WITH_TBB
+
+#if (__cplusplus >= 201103L)
 		while(all_threads_done < nthreads) {
 			SLEEP(10);
 		}
@@ -2477,11 +2361,11 @@ static void twoOrThreeMismatchSearchFull(
 	return;
 }
 
-static PatternComposer*     seededQualSearch_patsrc;
+static PatternComposer*		seededQualSearch_patsrc;
 static HitSink*                 seededQualSearch_sink;
-static Ebwt<String<Dna> >*      seededQualSearch_ebwtFw;
-static Ebwt<String<Dna> >*      seededQualSearch_ebwtBw;
-static vector<String<Dna5> >*   seededQualSearch_os;
+static Ebwt*			seededQualSearch_ebwtFw;
+static Ebwt*			seededQualSearch_ebwtBw;
+static EList<BTRefString >*  seededQualSearch_os;
 static SyncBitset*              seededQualSearch_doneMask;
 static SyncBitset*              seededQualSearch_hitMask;
 static PartialAlignmentManager* seededQualSearch_pamFw;
@@ -2489,7 +2373,7 @@ static PartialAlignmentManager* seededQualSearch_pamRc;
 static int                      seededQualSearch_qualCutoff;
 static BitPairReference*        seededQualSearch_refs;
 
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void seededQualSearchWorkerFull::operator()() const {
 static void seededQualSearchWorkerFull(void *vp) {
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -2501,35 +2385,33 @@ static void seededQualSearchWorkerFull(void *vp) {
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer&     _patsrc    = *seededQualSearch_patsrc;
-	HitSink&                 _sink      = *seededQualSearch_sink;
-	vector<String<Dna5> >&   os         = *seededQualSearch_os;
-	int                      qualCutoff = seededQualSearch_qualCutoff;
-	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
-	PatternSourcePerThread* patsrc = patsrcFact->create();
-	HitSinkPerThreadFactory* sinkFact = createSinkFactory(_sink, tid);
-	HitSinkPerThread* sink = sinkFact->create();
+	PatternComposer&		_patsrc    = *seededQualSearch_patsrc;
+	HitSink&			_sink      = *seededQualSearch_sink;
+	EList<BTRefString >&		os         = *seededQualSearch_os;
+	int				qualCutoff = seededQualSearch_qualCutoff;
+	PatternSourcePerThreadFactory*	patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
+	PatternSourcePerThread*		patsrc	   = patsrcFact->create();
+	HitSinkPerThreadFactory*	sinkFact   = createSinkFactory(_sink, tid);
+	HitSinkPerThread*		sink	   = sinkFact->create();
 	/* Per-thread initialization */
-	EbwtSearchParams<String<Dna> > params(
+	EbwtSearchParams params(
 	        *sink,       /* HitSink */
 	        os,          /* reference sequences */
 	        true,        /* read is forward */
 	        true);       /* index is forward */
-	Ebwt<String<Dna> >& ebwtFw = *seededQualSearch_ebwtFw;
-	Ebwt<String<Dna> >& ebwtBw = *seededQualSearch_ebwtBw;
+	Ebwt& ebwtFw = *seededQualSearch_ebwtFw;
+	Ebwt& ebwtBw = *seededQualSearch_ebwtBw;
 	PartialAlignmentManager * pamRc = NULL;
 	PartialAlignmentManager * pamFw = NULL;
 	if(seedMms > 0) {
 		pamRc = new PartialAlignmentManager(64);
 		pamFw = new PartialAlignmentManager(64);
 	}
-	vector<PartialAlignment> pals;
-	const BitPairReference* refs = seededQualSearch_refs;
+	EList<PartialAlignment> pals;
 	// GreedyDFSRangeSource for finding exact hits for the forward-
 	// oriented read
 	GreedyDFSRangeSource btf1(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff,            // qualThresh
 	        maxBtsBetter,          // max backtracks
 	        0,                     // reportPartials (don't)
@@ -2542,7 +2424,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	        false);                // considerQuals
 	GreedyDFSRangeSource bt1(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff,            // qualThresh
 	        maxBtsBetter,          // max backtracks
 	        0,                     // reportPartials (don't)
@@ -2557,7 +2438,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	// GreedyDFSRangeSource to search for hits for cases 1F, 2F, 3F
 	GreedyDFSRangeSource btf2(
 	        &ebwtBw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff,            // qualThresh
 	        maxBtsBetter,          // max backtracks
 	        0,                     // reportPartials (no)
@@ -2572,7 +2452,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	// GreedyDFSRangeSource to search for partial alignments for case 4R
 	GreedyDFSRangeSource btr2(
 	        &ebwtBw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff,            // qualThresh (none)
 	        maxBtsBetter,          // max backtracks
 	        seedMms,               // report partials (up to seedMms mms)
@@ -2587,7 +2466,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	// GreedyDFSRangeSource to search for seedlings for case 4F
 	GreedyDFSRangeSource btf3(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff,            // qualThresh (none)
 	        maxBtsBetter,          // max backtracks
 	        seedMms,               // reportPartials (do)
@@ -2603,7 +2481,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	// the partial alignments found in Phase 2
 	GreedyDFSRangeSource btr3(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff, // qualThresh
 	        maxBtsBetter,          // max backtracks
 	        0,       // reportPartials (don't)
@@ -2618,7 +2495,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	// The half-and-half GreedyDFSRangeSource
 	GreedyDFSRangeSource btr23(
 	        &ebwtFw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff, // qualThresh
 	        maxBtsBetter,          // max backtracks
 	        0,       // reportPartials (don't)
@@ -2635,7 +2511,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	// the partial alignments found in Phase 3
 	GreedyDFSRangeSource btf4(
 	        &ebwtBw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff, // qualThresh
 	        maxBtsBetter,          // max backtracks
 	        0,       // reportPartials (don't)
@@ -2650,7 +2525,6 @@ static void seededQualSearchWorkerFull(void *vp) {
 	// Half-and-half GreedyDFSRangeSource for forward read
 	GreedyDFSRangeSource btf24(
 	        &ebwtBw, params,
-	        refs,           // reference sequence (for colorspace)
 	        qualCutoff, // qualThresh
 	        maxBtsBetter,          // max backtracks
 	        0,       // reportPartials (don't)
@@ -2663,13 +2537,13 @@ static void seededQualSearchWorkerFull(void *vp) {
 	        true,    // considerQuals
 	        true,    // halfAndHalf
 	        !noMaqRound);
-	String<QueryMutation> muts;
+	EList<QueryMutation> muts;
 	bool skipped = false;
 	pair<bool, bool> get_read_ret = make_pair(false, false);
 #ifdef PER_THREAD_TIMING
 	uint64_t ncpu_changeovers = 0;
 	uint64_t nnuma_changeovers = 0;
-	
+
 	int current_cpu = 0, current_node = 0;
 	get_cpu_and_node(current_cpu, current_node);
 
@@ -2695,7 +2569,7 @@ static void seededQualSearchWorkerFull(void *vp) {
 #endif
 			FINISH_READ(patsrc);
 			GET_READ(patsrc);
-			uint32_t plen = (uint32_t)length(patFw);
+			uint32_t plen = (uint32_t)patFw.length();
 			uint32_t s = seedLen;
 			uint32_t s3 = (s >> 1); /* length of 3' half of seed */
 			uint32_t s5 = (s >> 1) + (s & 1); /* length of 5' half of seed */
@@ -2725,12 +2599,12 @@ static void seededQualSearchWorkerFull(void *vp) {
 		std::cout << ss.str();
 	}
 #endif
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
 	WORKER_EXIT();
 }
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 //void seededQualSearchWorkerFullStateful::operator()() const {
 static void seededQualSearchWorkerFullStateful(void *vp) {
 	thread_tracking_pair *p = (thread_tracking_pair*) vp;
@@ -2742,13 +2616,13 @@ static void seededQualSearchWorkerFullStateful(void *vp) {
 	if(thread_stealing) {
 		increment_thread_counter();
 	}
-	PatternComposer&     _patsrc    = *seededQualSearch_patsrc;
-	HitSink&                 _sink      = *seededQualSearch_sink;
-	Ebwt<String<Dna> >&      ebwtFw     = *seededQualSearch_ebwtFw;
-	Ebwt<String<Dna> >&      ebwtBw     = *seededQualSearch_ebwtBw;
-	vector<String<Dna5> >&   os         = *seededQualSearch_os;
-	int                      qualCutoff = seededQualSearch_qualCutoff;
-	BitPairReference*        refs       = seededQualSearch_refs;
+	PatternComposer&	_patsrc    = *seededQualSearch_patsrc;
+	HitSink&                _sink      = *seededQualSearch_sink;
+	Ebwt&			ebwtFw     = *seededQualSearch_ebwtFw;
+	Ebwt&			ebwtBw     = *seededQualSearch_ebwtBw;
+	EList<BTRefString >& os         = *seededQualSearch_os;
+	int                     qualCutoff = seededQualSearch_qualCutoff;
+	BitPairReference*       refs       = seededQualSearch_refs;
 
 	// Global initialization
 	PatternSourcePerThreadFactory* patsrcFact = createPatsrcFactory(_patsrc, tid, readsPerBatch);
@@ -2787,7 +2661,6 @@ static void seededQualSearchWorkerFullStateful(void *vp) {
 	PairedSeedAlignerFactory alPEfact(
 			ebwtFw,
 			&ebwtBw,
-			color,
 			useV1,
 			!nofw,
 			!norc,
@@ -2835,8 +2708,8 @@ static void seededQualSearchWorkerFullStateful(void *vp) {
 		delete metrics;
 	}
 
-#ifdef WITH_TBB
-	p->done->fetch_and_add(1);
+#if (__cplusplus >= 201103L)
+	p->done->fetch_add(1);
 #endif
 	if(thread_stealing) {
 		decrement_thread_counter();
@@ -2859,7 +2732,6 @@ static void seededQualSearchWorkerFullStateful(void *vp) {
  * closest to the 5' end) differently from the remainder of the read.
  * We call the first 24 base pairs the "seed."
  */
-template<typename TStr>
 static void seededQualCutoffSearchFull(
         int seedLen,                    /// length of seed (not a maq option)
         int qualCutoff,                 /// maximum sum of mismatch qualities
@@ -2870,9 +2742,9 @@ static void seededQualCutoffSearchFull(
                                         /// Can only be 1 or 2, default: 1
         PatternComposer& _patsrc,   /// pattern source
         HitSink& _sink,                 /// hit sink
-        Ebwt<TStr>& ebwtFw,             /// index of original text
-        Ebwt<TStr>& ebwtBw,             /// index of mirror text
-        vector<String<Dna5> >& os)      /// text strings, if available (empty otherwise)
+        Ebwt& ebwtFw,             /// index of original text
+        Ebwt& ebwtBw,             /// index of mirror text
+        EList<BTRefString >& os)      /// text strings, if available (empty otherwise)
 {
 	// Global intialization
 	assert_leq(seedMms, 3);
@@ -2891,24 +2763,24 @@ static void seededQualCutoffSearchFull(
 	// Create range caches, which are shared among all aligners
 	BitPairReference *refs = NULL;
 	bool pair = mates1.size() > 0 || mates12.size() > 0;
-	if(color || (pair && mixedThresh < 0xffffffff)) {
+	if(pair && mixedThresh < 0xffffffff) {
 		Timer _t(cerr, "Time loading reference: ", timing);
-		refs = new BitPairReference(adjustedEbwtFileBase, color, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
+		refs = new BitPairReference(adjustedEbwtFileBase, sanityCheck, NULL, &os, false, true, useMm, useShmem, mmSweep, verbose, startVerbose);
 		if(!refs->loaded()) throw 1;
 	}
 	seededQualSearch_refs = refs;
 
 	int tids[max(nthreads, thread_ceiling)];
-#ifdef WITH_TBB
-	vector<std::thread*> threads;
-	vector<thread_tracking_pair> tps;
-	tps.reserve(max(nthreads, thread_ceiling));
+#if (__cplusplus >= 201103L)
+	EList<std::thread*> threads;
+	EList<thread_tracking_pair> tps;
+	tps.resizeExact(max(nthreads, thread_ceiling));
 #else
-	vector<tthread::thread*> threads;
+	EList<tthread::thread*> threads;
 #endif
 
-#ifdef WITH_TBB
-	tbb::atomic<int> all_threads_done;
+#if (__cplusplus >= 201103L)
+	std::atomic<int> all_threads_done;
 	all_threads_done = 0;
 #endif
 
@@ -2917,7 +2789,7 @@ static void seededQualCutoffSearchFull(
 	{
 		// Load the other half of the index into memory
 		Timer _t(cerr, "Time loading mirror index: ", timing);
-		ebwtBw.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose);
+		ebwtBw.loadIntoMemory(-1, !noRefNames, startVerbose);
 	}
 	CHUD_START();
 	{
@@ -2935,8 +2807,8 @@ static void seededQualCutoffSearchFull(
 
 		for(int i = 0; i < nthreads; i++) {
 			tids[i] = i;
-#ifdef WITH_TBB
-			tps[i].tid = i;
+#if (__cplusplus >= 201103L)
+			tps[i].tid = tids[i];
 			tps[i].done = &all_threads_done;
 			if (i == nthreads - 1) {
 				if(stateful) {
@@ -2982,7 +2854,7 @@ static void seededQualCutoffSearchFull(
 				if(steal_thread(pid, orig_threads)) {
 					nthreads++;
 					tids[nthreads-1] = nthreads - 1;
-#ifdef WITH_TBB
+#if (__cplusplus >= 201103L)
 					tps[nthreads-1].tid = nthreads - 1;
 					tps[nthreads-1].done = &all_threads_done;
 					if(stateful) {
@@ -3008,8 +2880,8 @@ static void seededQualCutoffSearchFull(
 			}
 		}
 #endif
-		
-#ifdef WITH_TBB
+
+#if (__cplusplus >= 201103L)
 		while(all_threads_done < nthreads) {
 			SLEEP(10);
 		}
@@ -3046,38 +2918,31 @@ static void seededQualCutoffSearchFull(
  */
 static PatternSource*
 patsrcFromStrings(int format,
-                  const vector<string>& reads,
-                  const vector<string>* quals)
+                  const EList<string>& reads,
+                  const EList<string>* quals)
 {
 	switch(format) {
 		case FASTA:
-			return new FastaPatternSource (reads, quals, color,
-			                               trim3, trim5,
-			                               solexaQuals, phred64Quals,
-			                               integerQuals);
+			return new FastaPatternSource (reads, quals,
+			                               trim3, trim5);
 		case FASTA_CONT:
 			return new FastaContinuousPatternSource (
 			                               reads, fastaContLen,
 			                               fastaContFreq);
 		case RAW:
-			return new RawPatternSource   (reads, color,
-			                               trim3, trim5);
+			return new RawPatternSource   (reads, trim3, trim5);
 		case FASTQ:
-			return new FastqPatternSource (reads, color,
-			                               trim3, trim5,
+			return new FastqPatternSource (reads, trim3, trim5,
 			                               solexaQuals, phred64Quals,
 			                               integerQuals);
 		case INTERLEAVED:
-			return new FastqPatternSource (reads, color,
-			                               trim3, trim5,
+			return new FastqPatternSource (reads, trim3, trim5,
 			                               solexaQuals, phred64Quals,
 			                               integerQuals, true /* is interleaved */);
 		case TAB_MATE:
-			return new TabbedPatternSource(reads, false, color,
-			                               trim3, trim5);
+			return new TabbedPatternSource(reads, false, trim3, trim5);
 		case CMDLINE:
-			return new VectorPatternSource(reads, color,
-			                               trim3, trim5);
+			return new VectorPatternSource(reads, trim3, trim5);
 		default: {
 			cerr << "Internal error; bad patsrc format: " << format << endl;
 			throw 1;
@@ -3087,19 +2952,18 @@ patsrcFromStrings(int format,
 
 static string argstr;
 
-template<typename TStr>
 static void driver(const char * type,
                    const string& ebwtFileBase,
                    const string& query,
-                   const vector<string>& queries,
-                   const vector<string>& qualities,
+                   const EList<string>& queries,
+                   const EList<string>& qualities,
                    const string& outfile)
 {
 	if(verbose || startVerbose)  {
 		cerr << "Entered driver(): "; logTime(cerr, true);
 	}
 	// Vector of the reference sequences; used for sanity-checking
-	vector<String<Dna5> > os;
+	EList<BTRefString> os;
 	// Read reference sequences from the command-line or from a FASTA file
 	if(!origString.empty()) {
 		// Determine if it's a file by looking at whether it has a FASTA-like
@@ -3112,9 +2976,9 @@ static void driver(const char * type,
 		   (len >= 3 && origString.substr(len-3) == ".fa"))
 		{
 			// Read fasta file
-			vector<string> origFiles;
+			EList<string> origFiles;
 			tokenize(origString, ",", origFiles);
-			readSequenceFiles<String<Dna5>, Fasta>(origFiles, os);
+			readSequenceFiles(origFiles, os);
 		} else {
 			// Read sequence
 			readSequenceString(origString, os);
@@ -3128,9 +2992,9 @@ static void driver(const char * type,
 	}
 
 
-	vector<PatternSource*> patsrcs_a;
-	vector<PatternSource*> patsrcs_b;
-	vector<PatternSource*> patsrcs_ab;
+	EList<PatternSource*> patsrcs_a;
+	EList<PatternSource*> patsrcs_b;
+	EList<PatternSource*> patsrcs_ab;
 
 	// If there were any first-mates specified, we will operate in
 	// stateful mode
@@ -3143,8 +3007,8 @@ static void driver(const char * type,
 		cerr << "Creating paired-end patsrcs: "; logTime(cerr, true);
 	}
 	for(size_t i = 0; i < mates12.size(); i++) {
-		const vector<string>* qs = &mates12;
-		vector<string> tmp;
+		const EList<string>* qs = &mates12;
+		EList<string> tmp;
 		if(fileParallel) {
 			// Feed query files one to each PatternSource
 			qs = &tmp;
@@ -3159,10 +3023,10 @@ static void driver(const char * type,
 
 	// Create list of pattern sources for paired reads
 	for(size_t i = 0; i < mates1.size(); i++) {
-		const vector<string>* qs = &mates1;
-		const vector<string>* quals = &qualities1;
-		vector<string> tmpSeq;
-		vector<string> tmpQual;
+		const EList<string>* qs = &mates1;
+		const EList<string>* quals = &qualities1;
+		EList<string> tmpSeq;
+		EList<string> tmpQual;
 		if(fileParallel) {
 			// Feed query files one to each PatternSource
 			qs = &tmpSeq;
@@ -3180,10 +3044,10 @@ static void driver(const char * type,
 
 	// Create list of pattern sources for paired reads
 	for(size_t i = 0; i < mates2.size(); i++) {
-		const vector<string>* qs = &mates2;
-		const vector<string>* quals = &qualities2;
-		vector<string> tmpSeq;
-		vector<string> tmpQual;
+		const EList<string>* qs = &mates2;
+		const EList<string>* quals = &qualities2;
+		EList<string> tmpSeq;
+		EList<string> tmpQual;
 		if(fileParallel) {
 			// Feed query files one to each PatternSource
 			qs = &tmpSeq;
@@ -3206,11 +3070,11 @@ static void driver(const char * type,
 		cerr << "Creating single-end patsrcs: "; logTime(cerr, true);
 	}
 	for(size_t i = 0; i < queries.size(); i++) {
-		const vector<string>* qs = &queries;
-		const vector<string>* quals = &qualities;
+		const EList<string>* qs = &queries;
+		const EList<string>* quals = &qualities;
 		PatternSource* patsrc = NULL;
-		vector<string> tmpSeq;
-		vector<string> tmpQual;
+		EList<string> tmpSeq;
+		EList<string> tmpQual;
 		if(fileParallel) {
 			// Feed query files one to each PatternSource
 			qs = &tmpSeq;
@@ -3253,8 +3117,7 @@ static void driver(const char * type,
 	if(verbose || startVerbose) {
 		cerr << "About to initialize fw Ebwt: "; logTime(cerr, true);
 	}
-	Ebwt<TStr> ebwt(adjustedEbwtFileBase,
-	                color,  // index is colorspace
+	Ebwt ebwt(adjustedEbwtFileBase,
 	                -1,     // don't care about entireReverse
 	                true,     // index is for the forward direction
 	                /* overriding: */ offRate,
@@ -3268,15 +3131,14 @@ static void driver(const char * type,
 	                false /*passMemExc*/,
 	                sanityCheck,
 	                isBt2Index);
-	Ebwt<TStr>* ebwtBw = NULL;
+	Ebwt* ebwtBw = NULL;
 	// We need the mirror index if mismatches are allowed
 	if(mismatches > 0 || maqLike) {
 		if(verbose || startVerbose) {
 			cerr << "About to initialize rev Ebwt: "; logTime(cerr, true);
 		}
-		ebwtBw = new Ebwt<TStr>(
+		ebwtBw = new Ebwt(
 			adjustedEbwtFileBase + ".rev",
-			color,  // index is colorspace
 			-1,     // don't care about entireReverse
 			false, // index is for the reverse direction
 			/* overriding: */ offRate,
@@ -3293,7 +3155,7 @@ static void driver(const char * type,
 	}
 	if(!os.empty()) {
 		for(size_t i = 0; i < os.size(); i++) {
-			size_t olen = seqan::length(os[i]);
+			size_t olen = os[i].length();
 			int longestStretch = 0;
 			int curStretch = 0;
 			for(size_t j = 0; j < olen; j++) {
@@ -3304,9 +3166,8 @@ static void driver(const char * type,
 					curStretch = 0;
 				}
 			}
-			if(longestStretch < (color ? 2 : 1)) {
-				os.erase(os.begin() + i);
-				i--;
+			if(longestStretch < 1) {
+				os.erase(i--);
 			}
 		}
 	}
@@ -3315,10 +3176,10 @@ static void driver(const char * type,
 		// against original strings
 		assert_eq(os.size(), ebwt.nPat());
 		for(size_t i = 0; i < os.size(); i++) {
-			assert_eq(length(os[i]), ebwt.plen()[i] + (color ? 1 : 0));
+			assert_eq(os[i].length(), ebwt.plen()[i]);
 		}
-		ebwt.loadIntoMemory(color ? 1 : 0, -1, !noRefNames, startVerbose);
-		ebwt.checkOrigs(os, color, false);
+		ebwt.loadIntoMemory(-1, !noRefNames, startVerbose);
+		ebwt.checkOrigs(os, false);
 		ebwt.evictFromMemory();
 	}
 	{
@@ -3330,12 +3191,12 @@ static void driver(const char * type,
 		// then instruct the sink to "retain" hits in a vector in
 		// memory so that we can easily sanity check them later on
 		HitSink *sink;
-		vector<string>* refnames = &ebwt.refnames();
+		EList<string>* refnames = &ebwt.refnames();
 		if(noRefNames) refnames = NULL;
 		if(outType == OUTPUT_FULL) {
 			sink = new VerboseHitSink(
 					*fout, offBase,
-					colorSeq, colorQual, printCost,
+					printCost,
 					suppressOuts,
 					fullRef,
 					dumpAlBase,
@@ -3346,7 +3207,7 @@ static void driver(const char * type,
 					outBatchSz, partitionSz);
 		} else if(outType == OUTPUT_SAM) {
 			SAMHitSink *sam = new SAMHitSink(
-				*fout, 1,
+				*fout,
 				fullRef, samNoQnameTrunc,
 				dumpAlBase,
 				dumpUnalBase,
@@ -3358,14 +3219,14 @@ static void driver(const char * type,
 				outBatchSz,
 				reorder);
 			if(!samNoHead) {
-				vector<string> refnames;
+				EList<string> refnames;
 				if(!samNoSQ) {
 					readEbwtRefnames(adjustedEbwtFileBase, refnames);
 				}
 				sam->appendHeaders(
 					sam->out(),
 					ebwt.nPat(),
-					refnames, color, samNoSQ,
+					refnames, samNoSQ,
 					ebwt.plen(), fullRef,
 					samNoQnameTrunc,
 					argstr.c_str(),
@@ -3444,7 +3305,7 @@ extern "C" {
  */
 int bowtie(int argc, const char **argv) {
 	try {
-  #ifdef WITH_TBB
+  #if (__cplusplus >= 201103L)
   #ifdef WITH_AFFINITY
     //CWILKS: adjust this depending on # of hyperthreads per core
     pinning_observer pinner( 2 /* the number of hyper threads on each core */ );
@@ -3458,9 +3319,8 @@ int bowtie(int argc, const char **argv) {
 			argstr += argv[i];
 			if(i < argc-1) argstr += " ";
 		}
-		string ebwtFile;  // read serialized Ebwt from this file
 		string query;   // read query string(s) from this file
-		vector<string> queries;
+		EList<string> queries;
 		string outfile; // write query results to this file
 		if(startVerbose) { cerr << "Entered main(): "; logTime(cerr, true); }
 		parseOptions(argc, argv);
@@ -3496,12 +3356,17 @@ int bowtie(int argc, const char **argv) {
 			}
 
 			// Get index basename
-			if(optind >= argc) {
-				cerr << "No index, query, or output file specified!" << endl;
-				printUsage(cerr);
-				return 1;
+			if (ebwtFile.empty()) {
+				if(optind >= argc) {
+					cerr << "No index, query, or output file specified!" << endl;
+					printUsage(cerr);
+					return 1;
+				}
+				std::cerr << "Setting the index via positional argument"
+					  << " will be deprecated in a future release."
+					  << " Please use -x option instead." << std::endl;
+				ebwtFile = argv[optind++];
 			}
-			ebwtFile = argv[optind++];
 
 			// Get query filename
 			if(optind >= argc) {
@@ -3567,13 +3432,13 @@ int bowtie(int argc, const char **argv) {
 				cout << "Press key to continue..." << endl;
 				getchar();
 			}
-			driver<String<Dna, Alloc<> > >("DNA", ebwtFile, query, queries, qualities, outfile);
+			driver("DNA", ebwtFile, query, queries, qualities, outfile);
 			CHUD_STOP();
 		}
 #ifdef CHUD_PROFILING
 		chudReleaseRemoteAccess();
 #endif
-  #ifdef WITH_TBB
+  #if (__cplusplus >= 201103L)
   #ifdef WITH_AFFINITY
     // Always disable observation before observers destruction
         //tracker.observe( false );

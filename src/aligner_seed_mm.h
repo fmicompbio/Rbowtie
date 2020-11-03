@@ -6,8 +6,9 @@
 #define ALIGNER_SEED_MM_H_
 
 #include <utility>
-#include <vector>
+
 #include "aligner.h"
+#include "ds.h"
 #include "hit.h"
 #include "row_chaser.h"
 #include "range_chaser.h"
@@ -19,13 +20,13 @@
 class UnpairedSeedAlignerFactory : public AlignerFactory {
 
 	typedef RangeSourceDriver<EbwtRangeSource> TRangeSrcDr;
-	typedef std::vector<TRangeSrcDr*> TRangeSrcDrPtrVec;
+	typedef EList<TRangeSrcDr*> TRangeSrcDrPtrVec;
 	typedef CostAwareRangeSourceDriver<EbwtRangeSource> TCostAwareRangeSrcDr;
 
 public:
 	UnpairedSeedAlignerFactory(
-			Ebwt<String<Dna> >& ebwtFw,
-			Ebwt<String<Dna> >* ebwtBw,
+			Ebwt& ebwtFw,
+			Ebwt* ebwtBw,
 			bool doFw,
 			bool doRc,
 			uint32_t seedMms,
@@ -39,7 +40,7 @@ public:
 			uint32_t cacheLimit,
 			ChunkPool *pool,
 			BitPairReference* refs,
-			vector<String<Dna5> >& os,
+			EList<BTRefString >& os,
 			bool maqPenalty,
 			bool qualOrder,
 			bool strandFix,
@@ -61,8 +62,7 @@ public:
 			cacheBw_(cacheBw),
 			cacheLimit_(cacheLimit),
 			pool_(pool),
-			refs_(refs),
-			os_(os),
+			refs_(refs), os_(os),
 			strandFix_(strandFix),
 			maqPenalty_(maqPenalty),
 			qualOrder_(qualOrder),
@@ -79,8 +79,8 @@ public:
 	 */
 	virtual Aligner* create() const {
 		HitSinkPerThread* sinkPt = sinkPtFactory_.create();
-		EbwtSearchParams<String<Dna> >* params =
-			new EbwtSearchParams<String<Dna> >(*sinkPt, os_);
+		EbwtSearchParams* params =
+			new EbwtSearchParams(*sinkPt, os_);
 		int *btCnt = new int[1];
 		*btCnt = maxBts_;
 
@@ -530,8 +530,8 @@ public:
 		delete drVec;
 
 		// Set up a RangeChaser
-		RangeChaser<String<Dna> > *rchase =
-			new RangeChaser<String<Dna> >(cacheLimit_, cacheFw_, cacheBw_, metrics_);
+		RangeChaser* rchase =
+			new RangeChaser(cacheLimit_, cacheFw_, cacheBw_, metrics_);
 
 		return new UnpairedAlignerV2<EbwtRangeSource>(
 			params, dr, rchase,
@@ -541,8 +541,8 @@ public:
 	}
 
 private:
-	Ebwt<String<Dna> >& ebwtFw_;
-	Ebwt<String<Dna> >* ebwtBw_;
+	Ebwt& ebwtFw_;
+	Ebwt* ebwtBw_;
 	bool doFw_;
 	bool doRc_;
 	const uint32_t seedMms_;
@@ -555,8 +555,8 @@ private:
 	RangeCache *cacheBw_;
 	const uint32_t cacheLimit_;
 	ChunkPool *pool_;
-	BitPairReference* refs_;
-	vector<String<Dna5> >& os_;
+	BitPairReference *refs_;
+	EList<BTRefString >& os_;
 	bool strandFix_;
 	bool maqPenalty_;
 	bool qualOrder_;
@@ -571,13 +571,12 @@ private:
  */
 class PairedSeedAlignerFactory : public AlignerFactory {
 	typedef RangeSourceDriver<EbwtRangeSource> TRangeSrcDr;
-	typedef std::vector<TRangeSrcDr*> TRangeSrcDrPtrVec;
+	typedef EList<TRangeSrcDr*> TRangeSrcDrPtrVec;
 	typedef CostAwareRangeSourceDriver<EbwtRangeSource> TCostAwareRangeSrcDr;
 public:
 	PairedSeedAlignerFactory(
-			Ebwt<String<Dna> >& ebwtFw,
-			Ebwt<String<Dna> >* ebwtBw,
-			bool color,
+			Ebwt& ebwtFw,
+			Ebwt* ebwtBw,
 			bool v1,
 			bool doFw,
 			bool doRc,
@@ -600,7 +599,7 @@ public:
 			uint32_t cacheLimit,
 			ChunkPool *pool,
 			BitPairReference* refs,
-			vector<String<Dna5> >& os,
+			EList<BTRefString >& os,
 			bool reportSe,
 			bool maqPenalty,
 			bool qualOrder,
@@ -611,7 +610,6 @@ public:
 			uint32_t seed) :
 			ebwtFw_(ebwtFw),
 			ebwtBw_(ebwtBw),
-			color_(color),
 			v1_(v1),
 			doFw_(doFw),
 			doRc_(doRc),
@@ -652,28 +650,28 @@ public:
 	virtual Aligner* create() const {
 		HitSinkPerThread* sinkPt = sinkPtFactory_.createMult(2);
 		HitSinkPerThread* sinkPtSe1 = NULL, * sinkPtSe2 = NULL;
-		EbwtSearchParams<String<Dna> >* params =
-			new EbwtSearchParams<String<Dna> >(*sinkPt, os_);
-		EbwtSearchParams<String<Dna> >* paramsSe1 = NULL, * paramsSe2 = NULL;
+		EbwtSearchParams* params =
+			new EbwtSearchParams(*sinkPt, os_);
+		EbwtSearchParams* paramsSe1 = NULL, * paramsSe2 = NULL;
 		if(reportSe_) {
 			sinkPtSe1 = sinkPtFactory_.create();
 			sinkPtSe2 = sinkPtFactory_.create();
 			paramsSe1 =
-				new EbwtSearchParams<String<Dna> >(*sinkPtSe1, os_);
+				new EbwtSearchParams(*sinkPtSe1, os_);
 			paramsSe2 =
-				new EbwtSearchParams<String<Dna> >(*sinkPtSe2, os_);
+				new EbwtSearchParams(*sinkPtSe2, os_);
 		}
-		RefAligner<String<Dna5> >* refAligner = NULL;
+		RefAligner* refAligner = NULL;
 		int *btCnt = new int[1];
 		*btCnt = maxBts_;
 		if(seedMms_ == 0) {
-			refAligner = new Seed0RefAligner<String<Dna5> >(color_, verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
+			refAligner = new Seed0RefAligner(verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
 		} else if(seedMms_ == 1) {
-			refAligner = new Seed1RefAligner<String<Dna5> >(color_, verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
+			refAligner = new Seed1RefAligner(verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
 		} else if(seedMms_ == 2) {
-			refAligner = new Seed2RefAligner<String<Dna5> >(color_, verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
+			refAligner = new Seed2RefAligner(verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
 		} else {
-			refAligner = new Seed3RefAligner<String<Dna5> >(color_, verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
+			refAligner = new Seed3RefAligner(verbose_, quiet_, seedLen_, qualCutoff_, maqPenalty_);
 		}
 		bool do1Fw = true;
 		bool do1Rc = true;
@@ -1317,8 +1315,8 @@ public:
 			cerr << "Unsupported --stateful mode: " << seedMms_ << endl;
 		}
 		// Set up a RangeChaser
-		RangeChaser<String<Dna> > *rchase =
-			new RangeChaser<String<Dna> >(cacheLimit_, cacheFw_, cacheBw_);
+		RangeChaser* rchase =
+			new RangeChaser(cacheLimit_, cacheFw_, cacheBw_);
 
 		if(v1_) {
 			PairedBWAlignerV1<EbwtRangeSource>* al = new PairedBWAlignerV1<EbwtRangeSource>(
@@ -1352,9 +1350,8 @@ public:
 	}
 
 private:
-	Ebwt<String<Dna> >& ebwtFw_;
-	Ebwt<String<Dna> >* ebwtBw_;
-	bool color_;
+	Ebwt& ebwtFw_;
+	Ebwt* ebwtBw_;
 	const bool v1_; // whether to use V1 PairedAligner
 	const bool doFw_;
 	const bool doRc_;
@@ -1377,7 +1374,7 @@ private:
 	const uint32_t cacheLimit_;
 	ChunkPool *pool_;
 	BitPairReference* refs_;
-	vector<String<Dna5> >& os_;
+	EList<BTRefString >& os_;
 	const bool reportSe_;
 	const bool maqPenalty_;
 	const bool qualOrder_;

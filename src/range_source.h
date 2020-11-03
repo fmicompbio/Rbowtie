@@ -6,8 +6,10 @@
 #define RANGE_SOURCE_H_
 
 #include <stdint.h>
+#include <queue>
 #include <vector>
-#include "seqan/sequence.h"
+
+#include "ds.h"
 #include "ebwt.h"
 #include "range.h"
 #include "pool.h"
@@ -320,7 +322,6 @@ struct RangeState {
 	              TIndexOffU& top, TIndexOffU& bot, bool indels,
 	              bool& last)
 	{
-		bool color = false;
 		Edit ret;
 		ret.type = EDIT_TYPE_MM;
 		ret.pos = pos;
@@ -421,7 +422,7 @@ struct RangeState {
 					bot = bots[0];
 					eq.flags.mmA = 1;
 					assert_lt(eq.join2.mmElims, 15);
-					ret.chr = color ? '0' : 'A';
+					ret.chr = 'A';
 					return ret;
 				}
 				dart -= (bots[0] - tops[0]);
@@ -433,7 +434,7 @@ struct RangeState {
 					bot = bots[1];
 					eq.flags.mmC = 1;
 					assert_lt(eq.join2.mmElims, 15);
-					ret.chr = color ? '1' : 'C';
+					ret.chr = 'C';
 					return ret;
 				}
 				dart -= (bots[1] - tops[1]);
@@ -445,7 +446,7 @@ struct RangeState {
 					bot = bots[2];
 					eq.flags.mmG = 1;
 					assert_lt(eq.join2.mmElims, 15);
-					ret.chr = color ? '2' : 'G';
+					ret.chr = 'G';
 					return ret;
 				}
 				dart -= (bots[2] - tops[2]);
@@ -457,7 +458,7 @@ struct RangeState {
 				bot = bots[3];
 				eq.flags.mmT = 1;
 				assert_lt(eq.join2.mmElims, 15);
-				ret.chr = color ? '3' : 'T';
+				ret.chr = 'T';
 			}
 		} else {
 			last = true; // last at this pos
@@ -473,7 +474,7 @@ struct RangeState {
 				assert(!eq.flags.mmT);
 				chr = 3;
 			}
-			ret.chr = color ? "0123"[chr] : "ACGT"[chr];
+			ret.chr = "ACGT"[chr];
 			top = tops[chr];
 			bot = bots[chr];
 			//assert_eq(15, eq.join2.mmElims);
@@ -792,8 +793,8 @@ public:
 	/**
 	 * Pretty-print the state of this branch.
 	 */
-	void print(const String<Dna5>& qry,
-	           const String<char>& quals,
+	void print(const BTDnaString& qry,
+	           const BTString& quals,
 	           uint16_t minCost,
 	           std::ostream& out,
 	           bool halfAndHalf,
@@ -803,7 +804,7 @@ public:
 	{
 		size_t editidx = 0;
 		size_t printed = 0;
-		const size_t qlen = seqan::length(qry);
+		const size_t qlen = qry.length();
 		if(exhausted_)      out << "E ";
 		else if(curtailed_) out << "C ";
 		else                out << "  ";
@@ -840,7 +841,7 @@ public:
 					ss3 << " " << (char)tolower(edits_.get(editidx).chr);
 					editidx++;
 				} else {
-					ss3 << " " << (char)qry[qlen - i - 1];
+					ss3 << " " << (char)qry.toChar(qlen - i - 1);
 				}
 				printed++;
 			}
@@ -853,7 +854,7 @@ public:
 				ss3 << (char)tolower(edits_.get(editidx).chr) << " ";
 				editidx++;
 			} else {
-				ss3 << (char)qry[qlen - printed - 1] << " ";
+				ss3 << (char)qry.toChar(qlen - printed - 1) << " ";
 			}
 			printed++;
 		}
@@ -1579,7 +1580,6 @@ protected:
  * ranges, and stopping when the consumer is satisfied.
  */
 class RangeSource {
-	typedef Ebwt<String<Dna> > TEbwt;
 public:
 	RangeSource() :
 		done(false), foundRange(false), curEbwt_(NULL) { }
@@ -1596,7 +1596,7 @@ public:
 	/// Return the last valid range found
 	virtual Range& range() = 0;
 	/// Return ptr to index this RangeSource is currently getting ranges from
-	const TEbwt *curEbwt() const { return curEbwt_; }
+	const Ebwt *curEbwt() const { return curEbwt_; }
 
 	/// All searching w/r/t the current query is finished
 	bool done;
@@ -1604,7 +1604,7 @@ public:
 	bool foundRange;
 protected:
 	/// ptr to index this RangeSource is currently getting ranges from
-	const TEbwt *curEbwt_;
+	const Ebwt *curEbwt_;
 };
 
 /**
@@ -1612,7 +1612,6 @@ protected:
  */
 template<typename TRangeSource>
 class RangeSourceDriver {
-	typedef Ebwt<String<Dna> > TEbwt;
 public:
 	RangeSourceDriver(bool _done, uint32_t minCostAdjustment = 0) :
 		foundRange(false), done(_done), minCostAdjustment_(minCostAdjustment)
@@ -1716,16 +1715,14 @@ protected:
 template<typename TRangeSource>
 class SingleRangeSourceDriver : public RangeSourceDriver<TRangeSource> {
 
-	typedef Ebwt<String<Dna> > TEbwt;
-
 public:
 	SingleRangeSourceDriver(
-		EbwtSearchParams<String<Dna> >& params,
+		EbwtSearchParams& params,
 		TRangeSource* rs,
 		bool fw,
 		HitSink& sink,
 		HitSinkPerThread* sinkPt,
-		vector<String<Dna5> >& os,
+		EList<BTRefString >& os,
 		bool verbose,
 		bool quiet,
 		bool mate1,
@@ -1864,7 +1861,7 @@ public:
 		return fw_;
 	}
 
-	virtual void initRangeSource(const String<char>& qual) = 0;
+	virtual void initRangeSource(const BTString& qual) = 0;
 
 protected:
 
@@ -1876,7 +1873,7 @@ protected:
 	HitSinkPerThread* sinkPt_;
 
 	// State for alignment
-	EbwtSearchParams<String<Dna> >& params_;
+	EbwtSearchParams& params_;
 	bool                            fw_;
 	TRangeSource*                   rs_; // delete this in destructor
 	bool ebwtFw_;
@@ -1893,8 +1890,7 @@ protected:
 template<typename TRangeSource>
 class StubRangeSourceDriver : public RangeSourceDriver<TRangeSource> {
 
-	typedef Ebwt<String<Dna> > TEbwt;
-	typedef std::vector<RangeSourceDriver<TRangeSource>*> TRangeSrcDrPtrVec;
+	typedef EList<RangeSourceDriver<TRangeSource>*> TRangeSrcDrPtrVec;
 
 public:
 
@@ -1942,8 +1938,7 @@ public:
 template<typename TRangeSource>
 class ListRangeSourceDriver : public RangeSourceDriver<TRangeSource> {
 
-	typedef Ebwt<String<Dna> > TEbwt;
-	typedef std::vector<RangeSourceDriver<TRangeSource>*> TRangeSrcDrPtrVec;
+	typedef EList<RangeSourceDriver<TRangeSource>*> TRangeSrcDrPtrVec;
 
 public:
 
@@ -2037,9 +2032,8 @@ protected:
 template<typename TRangeSource>
 class CostAwareRangeSourceDriver : public RangeSourceDriver<TRangeSource> {
 
-	typedef Ebwt<String<Dna> > TEbwt;
 	typedef RangeSourceDriver<TRangeSource>* TRangeSrcDrPtr;
-	typedef std::vector<TRangeSrcDrPtr> TRangeSrcDrPtrVec;
+	typedef EList<TRangeSrcDrPtr> TRangeSrcDrPtrVec;
 
 public:
 
@@ -2380,7 +2374,7 @@ protected:
 		for(size_t i = 0; i < sz;) {
 			// Remove elements that we're done with
 			if(vec[i]->done && !vec[i]->foundRange) {
-				vec.erase(vec.begin() + i);
+				vec.erase(i);
 				if(sz == 0) break;
 				else sz--;
 				continue;
@@ -2412,7 +2406,7 @@ protected:
 			}
 			i++;
 		}
-		if(delayedRange_ == NULL) {
+		if(delayedRange_ == NULL && sz > 0) {
 			assert_geq(this->minCost, this->minCostAdjustment_);
 			assert_geq(vec[0]->minCost, this->minCost);
 			this->minCost = vec[0]->minCost;

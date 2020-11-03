@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
 
 
     // open input streams
-    samFile *samfiles[nbChr+2];
+    samFile **samfiles = new samFile*[nbChr+2];
     for(i=0; i<nbChr; i++)
 	samfiles[i] = new samFile(fnameIn[0], chrPos[i], i<nbChr-1 ? chrPos[i+1] : (streampos)0, i); // junction.sam (chromosome blocks)
     samfiles[nbChr]   = new samFile(fnameIn[1], 0, 0, nbChr);   // unmapped.sam
@@ -245,8 +245,10 @@ int main(int argc, char** argv) {
 
     // clean up
     fhOut.close();
-    for(i=0; i<nbChr+2; i++)
-	delete samfiles[i];
+    for(i=0; i<nbChr+2; i++) {
+		delete samfiles[i];
+	}
+	delete[] samfiles;
 
     cout << "Finished." << endl;
     return 0;
