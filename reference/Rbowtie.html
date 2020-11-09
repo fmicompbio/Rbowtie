@@ -73,7 +73,7 @@ We recommend to use the QuasR package instead of using bowtie and bowtie_build d
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">Rbowtie</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">1.31.2</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">1.31.3</span>
       </span>
     </div>
 
@@ -253,7 +253,7 @@ full<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</spa
 force<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span>
 <span class='fu'><a href='https://rdrr.io/r/utils/head.html'>head</a></span><span class='op'>(</span><span class='va'>tmp</span><span class='op'>)</span>
 </div><div class='output co'>#&gt; [1] "Settings:"                                                                                          
-#&gt; [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpKIxZsJ/index/index.*.ebwt\""
+#&gt; [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpcAvYAW/index/index.*.ebwt\""
 #&gt; [3] "  Line rate: 6 (line is 64 bytes)"                                                                  
 #&gt; [4] "  Lines per side: 1 (side is 64 bytes)"                                                             
 #&gt; [5] "  Offset rate: 5 (one in 32)"                                                                       
@@ -261,7 +261,7 @@ force<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</sp
 </div><div class='output co'>#&gt; [1] "index.1.ebwt"     "index.2.ebwt"     "index.3.ebwt"     "index.4.ebwt"    
 #&gt; [5] "index.rev.1.ebwt" "index.rev.2.ebwt"</div><div class='input'><span class='va'>tmp2</span> <span class='op'>&lt;-</span> <span class='fu'>bowtie_build</span><span class='op'>(</span>references<span class='op'>=</span><span class='va'>refs</span>, outdir<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>,<span class='st'>"indexColor"</span><span class='op'>)</span>,
 force<span class='op'>=</span><span class='cn'>TRUE</span>, C<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span>
-</div><div class='output co'>#&gt; <span class='warning'>Warning: running command ''/Users/runner/work/_temp/Library/Rbowtie/bowtie-build' -C '/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr1.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr2.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr3.fa' '/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpKIxZsJ/indexColor/index'' had status 1</span></div><div class='input'><span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"indexColor"</span><span class='op'>)</span><span class='op'>)</span>
+</div><div class='output co'>#&gt; <span class='warning'>Warning: running command ''/Users/runner/work/_temp/Library/Rbowtie/bowtie-build' -C '/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr1.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr2.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr3.fa' '/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpcAvYAW/indexColor/index'' had status 1</span></div><div class='input'><span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"indexColor"</span><span class='op'>)</span><span class='op'>)</span>
 </div><div class='output co'>#&gt; character(0)</div><div class='input'><span class='fu'><a href='https://rdrr.io/r/utils/head.html'>head</a></span><span class='op'>(</span><span class='va'>tmp2</span><span class='op'>)</span>
 </div><div class='output co'>#&gt; character(0)</div><div class='input'>
 
