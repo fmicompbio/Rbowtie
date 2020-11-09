@@ -4,6 +4,7 @@
 # edited for cross-platform compilation as part of Rbowtie:
 # - set BITS=64 (comment parts that are related to setting BITS)
 # - set POPCNT_CAPABILITY = 0 on MACOS
+# - always use clang (with -stdlib=libc++) on MACOS
 # - set NO_TBB=1
 # - removed files
 #   from BIN_LIST:
@@ -99,12 +100,10 @@ MACOS =
 ifneq (,$(findstring Darwin,$(shell uname)))
     MACOS = 1
     POPCNT_CAPABILITY = 0
-	ifneq (,$(findstring 13,$(shell uname -r)))
-		CPP = clang++
-		CXX = $(CPP)
-		CC = clang
-		override EXTRA_FLAGS += -stdlib=libstdc++
-	endif
+	CPP = clang++
+	CXX = $(CPP)
+	CC = clang
+	override EXTRA_FLAGS += -stdlib=libc++
 	ifeq (1, $(RELEASE_BUILD))
 		EXTRA_FLAGS += -mmacosx-version-min=10.9
 	endif
