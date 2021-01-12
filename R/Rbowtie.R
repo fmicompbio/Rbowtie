@@ -133,8 +133,8 @@ bowtie_version <- function(){
 }
 
 ## The direct binary call function
-.execute <- function(callstr, ...){
-  call <- file.path(shQuote(system.file(package="Rbowtie")), callstr)
-  return(system(call, ...))
-}
+# .execute <- function(callstr, ...){
+#   call <- file.path(shQuote(system.file(package="Rbowtie")), callstr)
+#   return(system(call, ...))
+# }
 
