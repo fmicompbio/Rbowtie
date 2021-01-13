@@ -52,7 +52,7 @@ test_that("correctly formatted input works", {
                         index=file.path(outdir, "index"), force=TRUE,
                         execute=FALSE, type="single"),
                  paste0(shQuote(file.path(system.file(package="Rbowtie"), "bowtie")),
-                        " ", shQuote(file.path(outdir, "index")),
+                        " -x ", shQuote(file.path(outdir, "index")),
                         " ", shQuote(system.file("extdata/reads/reads1.fastq",
                                                  package="Rbowtie")),
                         "  ", shQuote(file.path(tmp, "alignments.sam"))))
@@ -66,7 +66,7 @@ test_that("correctly formatted input works", {
                         index=file.path(outdir, "index"), force=TRUE,
                         execute=FALSE, type="paired"),
                  paste0(shQuote(file.path(system.file(package="Rbowtie"), "bowtie")),
-                        " ", shQuote(file.path(outdir, "index")),
+                        " -x ", shQuote(file.path(outdir, "index")),
                         " -1 ", shQuote(system.file("extdata/reads/reads1.fastq",
                                                     package="Rbowtie")),
                         " -2 ", shQuote(system.file("extdata/reads/reads2.fastq",
@@ -96,7 +96,23 @@ test_that("correctly formatted input works", {
     expect_is(v, "character")
     expect_length(v, 2L)
     
-    ## SpliceMap
+    ## bowtie alignments
+    r1 <- system.file("extdata", "reads", "reads1.fastq", package = "Rbowtie")
+    r2 <- system.file("extdata", "reads", "reads2.fastq", package = "Rbowtie")
+    idx <- paste0(outdir, "/index")
+    # ... quality mode
+    expect_true(is(res1q <- bowtie(sequences = r1, index = idx), "character"))
+    expect_length(res1q, 2L)
+    expect_true(is(res2q <- bowtie(sequences = c(r1, r2), index = idx), "character"))
+    expect_length(res2q, 3L)
+    # ... mismatch mode 
+    expect_true(is(res1v <- bowtie(sequences = r1, index = idx, list(v=2)), "character"))
+    expect_length(res1v, 2L)
+    expect_true(is(res2v <- bowtie(sequences = c(r1, r2), index = idx, list(v=2)), "character"))
+    expect_length(res2v, 3L)
+    
+    
+    ## SpliceMap alignments
     fout1 <- tempfile(fileext = ".sam")
     fout2 <- tempfile(fileext = ".sam")
     fout3 <- tempfile(fileext = ".sam")
