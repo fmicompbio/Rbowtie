@@ -103,13 +103,13 @@ test_that("correctly formatted input works", {
     # ... quality mode
     expect_true(is(res1q <- bowtie(sequences = r1, index = idx), "character"))
     expect_length(res1q, 2L)
-    expect_true(is(res2q <- bowtie(sequences = c(r1, r2), index = idx), "character"))
-    expect_length(res2q, 3L)
+    expect_true(is(res2q <- bowtie(sequences = list(r1, r2), index = idx, type = "paired"), "character"))
+    expect_length(res2q, 0L)
     # ... mismatch mode 
     expect_true(is(res1v <- bowtie(sequences = r1, index = idx, list(v=2)), "character"))
     expect_length(res1v, 2L)
-    expect_true(is(res2v <- bowtie(sequences = c(r1, r2), index = idx, list(v=2)), "character"))
-    expect_length(res2v, 3L)
+    expect_true(is(res2v <- bowtie(sequences = list(r1, r2), index = idx, type = "paired", list(v=2)), "character"))
+    expect_length(res2v, 0L)
     
     
     ## SpliceMap alignments

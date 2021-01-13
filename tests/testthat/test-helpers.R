@@ -94,7 +94,7 @@ test_that(".write_cfg works", {
                      system.file("extdata", "reads", paste0("reads",1:2,".fastq"),
                                  package = "Rbowtie"))
     expect_identical(resLines[9:14],
-                     normalizePath(file.path(td2, paste0("chr", 1:6, ".fa"))))
+                     normalizePath(file.path(td2, paste0("chr", 1:6, ".fa")), winslash = "/"))
     expect_identical(resLines[16], paste("genome_dir","=",td2))
     expect_identical(resLines[19], paste("bowtie_base_dir","=",td1))
     expect_identical(resLines[22], paste("outfile","=",tf2))
