@@ -74,7 +74,7 @@ bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow")
     } else ""
    
     
-    args <- sprintf("%s %s %s %s", .createFlags(args), shQuote(path.expand(index)), seqArg, outfile)
+    args <- sprintf("%s -x %s %s %s", .createFlags(args), shQuote(path.expand(index)), seqArg, outfile)
     return(invisible(.bowtieBin("bowtie", args, execute=execute)))
 }
 
