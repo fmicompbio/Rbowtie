@@ -95,4 +95,50 @@ test_that("correctly formatted input works", {
                 index=file.path(outdir, "index"))
     expect_is(v, "character")
     expect_length(v, 2L)
+    
+    ## SpliceMap
+    fout1 <- tempfile(fileext = ".sam")
+    fout2 <- tempfile(fileext = ".sam")
+    fout3 <- tempfile(fileext = ".sam")
+    lst <- list(genome_dir = system.file("extdata", "refs", package="Rbowtie"),
+                reads_list1 = system.file("extdata", "reads", "reads1.fastq", package = "Rbowtie"),
+                read_format = "FASTQ",
+                quality_format = "phred-64",
+                bowtie_base_dir = file.path(outdir, "index"),
+                temp_path = tempdir(),
+                num_threads = 2L,
+                outfile = fout1,
+                selectSingleHit = FALSE)
+
+    expect_error(SpliceMap("error"))
+    expect_error(SpliceMap(list()))
+    expect_error(SpliceMap(list(outfile = "")))
+    expect_error(SpliceMap(list(outfile = "", temp_path = "error")))
+    
+    expect_is(res1 <- SpliceMap(lst), "character")
+    expect_error(SpliceMap(lst), regexp = "output file .+ already exists")
+    expect_identical(res1, fout1)
+
+    lst2 <- lst
+    lst2$outfile <- fout2
+    lst2$num_chromosome_together <- 2L
+    
+    expect_is(res2 <- SpliceMap(lst2), "character")
+    expect_identical(res2, fout2)
+    
+    rl1 <- readLines(fout1)
+    rl2 <- readLines(fout2)
+    expect_length(rl1, 9L)
+    expect_identical(rl1, rl2)
+    
+    lst3 <- lst
+    lst3$outfile <- fout3
+    lst3$reads_list2 <- system.file("extdata", "reads", "reads2.fastq", package = "Rbowtie")
+    expect_is(res3 <- SpliceMap(lst3), "character")
+    expect_identical(res3, fout3)
+    
+    rl3 <- readLines(fout3)
+    expect_length(rl3, 13L)
+    
+    unlink(c(fout1, fout2, fout3))
 })
