@@ -9,12 +9,12 @@ SpliceMap <- function(cfg) {
         stop("'cfg' must be a list with SpliceMap settings")
     if(!('outfile' %in% names(cfg)))
         stop("no 'outfile' element in SpliceMap config list 'cfg'")
-    if(file.exists(cfg[['outfile']]))
+    if(any(file.exists(cfg[['outfile']])))
         stop(sprintf("output file %s already exists",cfg[['outfile']]))
     if(!('temp_path' %in% names(cfg)))
         stop("no 'temp_path' element in SpliceMap config list 'cfg'")
     cfg[['temp_path']] <- sub("(\\\\|/)$","",cfg[['temp_path']]) # remove trailing slash for file.exists() on windows
-    if(!file.exists(cfg[['temp_path']]))
+    if(!all(file.exists(cfg[['temp_path']])))
         stop(sprintf("'temp_path' %s does not exist",cfg[['temp_path']]))
     
     # prepare subfolder in cfg[['temp_path']] for all temporary files
@@ -23,8 +23,8 @@ SpliceMap <- function(cfg) {
     if(!dir.create(cfg[['temp_path']]))
         stop(sprintf("could not create directory %s",cfg[['temp_path']]))
     on.exit({
-        if(file.exists(file.path(cfg[['temp_path']], "junction2.sam")))
-            file.rename(file.path(cfg[['temp_path']], "junction2.sam"), cfg[['outfile']])
+        if(file.exists(file.path(cfg[['temp_path']][1], "junction2.sam")))
+            file.rename(file.path(cfg[['temp_path']][1], "junction2.sam"), cfg[['outfile']])
         unlink(cfg[['temp_path']], recursive=TRUE, force=TRUE)
     })
     
@@ -169,7 +169,7 @@ SpliceMap <- function(cfg) {
         # check quality string
         if(!("quality_format" %in% names(lst)))
             stop("required settings are missing for SpliceMap config file: quality_format")
-        if(!(lst[["quality_format"]] %in% c("phred-33","phred-64","solexa")))
+        if(!all(lst[["quality_format"]] %in% c("phred-33","phred-64","solexa")))
             stop("'quality_format' must be one of: phred-33, phred-64, solexa")
     }
 
@@ -186,17 +186,17 @@ SpliceMap <- function(cfg) {
         stop("'reads_list1' and 'reads_list2' arguments have not the same length")
 
     # check existance of bowtie index
-    if(!file.exists(lst[["bowtie_base_dir"]])) {
+    if(!all(file.exists(lst[["bowtie_base_dir"]]))) {
         tmp <- sub(paste(basename(lst[["bowtie_base_dir"]]),"$",sep=""),"",lst[["bowtie_base_dir"]])
         if(length(tmp2 <- list.files(tmp, pattern="*.ebwt")) < 6)
             stop("Invalid bowtie index in 'bowtie_base_dir'.")
     }
   
     # check existance of temp_path
-    if(!file.exists(lst[["temp_path"]]))
+    if(!all(file.exists(lst[["temp_path"]])))
         stop(sprintf("'temp_path' (%s) does not exists", lst[["temp_path"]]))
 
-    if(!file.exists(tmp <- file.path(lst[["temp_path"]], "debug_logs")))
+    if(!all(file.exists(tmp <- file.path(lst[["temp_path"]], "debug_logs"))))
         if(!dir.create(tmp))
             stop(sprintf("could not create directory %s",tmp))
     on.exit(unlink(tmp, recursive=TRUE, force=TRUE))
@@ -212,10 +212,10 @@ SpliceMap <- function(cfg) {
     }
 
     # add chromosome file list
-    if(!file.exists(lst[["genome_dir"]]))
+    if(!all(file.exists(lst[["genome_dir"]])))
         stop(sprintf("non-existing 'genome_dir': %s",lst[["genome_dir"]]))
        
-    if(!(file.info(lst[["genome_dir"]])$isdir)) {
+    if(!all(file.info(lst[["genome_dir"]])$isdir)) {
         # 'genome_dir' is a file
         lst[["genome_files"]] <- normalizePath(lst[["genome_dir"]], winslash="/")
     } else {

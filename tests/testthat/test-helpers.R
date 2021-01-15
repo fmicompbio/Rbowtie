@@ -77,7 +77,7 @@ test_that(".write_cfg works", {
     lst2 <- lst; lst2$genome_dir <- td1
     expect_error(.write_cfg(lst2, tf1))
     lst2 <- lst; lst2$genome_dir <- file.path(td2, c("chr1.fa", "chr2.fa")) 
-    expect_error(expect_warning(.write_cfg(lst2, tf1)))
+    expect_error(.write_cfg(lst2, tf1))
     lst2 <- lst; lst2$reads_list1 <- c(lst2$reads_list1, lst2$reads_list1)
     expect_error(.write_cfg(lst2, tf1))
     lst2 <- lst; lst2$reads_list2 <- c(lst2$reads_list1, lst2$reads_list1)
