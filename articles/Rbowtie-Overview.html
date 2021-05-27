@@ -19,6 +19,8 @@
 <![endif]-->
 </head>
 <body data-spy="scroll" data-target="#toc">
+    
+
     <div class="container template-article">
       <header><div class="navbar navbar-default navbar-fixed-top" role="navigation">
   <div class="container">
@@ -31,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">Rbowtie</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">1.31.6</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">1.33.0</span>
       </span>
     </div>
 
@@ -55,7 +57,7 @@
       </ul>
 <ul class="nav navbar-nav navbar-right">
 <li>
-  <a href="https://github.com/fmicompbio/Rbowtie/">
+  <a href="https://github.com/fmicompbio/Rbowtie/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
      
   </a>
@@ -74,13 +76,13 @@
   <div class="col-md-9 contents">
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>An introduction to Rbowtie</h1>
-                        <h4 class="author">Michael Stadler</h4>
-                        <h4 class="author">Dimos Gaidatzis</h4>
-                        <h4 class="author">Anita Lerch</h4>
+                        <h4 data-toc-skip class="author">Michael Stadler</h4>
+                        <h4 data-toc-skip class="author">Dimos Gaidatzis</h4>
+                        <h4 data-toc-skip class="author">Anita Lerch</h4>
             
-            <h4 class="date">15 January, 2021</h4>
+            <h4 data-toc-skip class="date">27 May, 2021</h4>
       
-      <small class="dont-index">Source: <a href="https://github.com/fmicompbio/Rbowtie/blob/master/vignettes/Rbowtie-Overview.Rmd"><code>vignettes/Rbowtie-Overview.Rmd</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/fmicompbio/Rbowtie/blob/master/vignettes/Rbowtie-Overview.Rmd" class="external-link"><code>vignettes/Rbowtie-Overview.Rmd</code></a></small>
       <div class="hidden name"><code>Rbowtie-Overview.Rmd</code></div>
 
     </div>
@@ -89,20 +91,20 @@
     
 <div id="introduction" class="section level1">
 <h1 class="hasAnchor">
-<a href="#introduction" class="anchor"></a>Introduction</h1>
-<p>The <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> package provides an <strong>R</strong> wrapper around the popular <em>bowtie</em> <span class="citation">(Langmead et al. 2009)</span> short read aligner and around <em>SpliceMap</em> <span class="citation">(Au et al. 2010)</span> a <em>de novo</em> splice junction discovery and alignment tool, which makes use of the <em>bowtie</em> software package.</p>
-<p>The package is used by the <em><a href="https://bioconductor.org/packages/3.13/QuasR">QuasR</a></em> <span class="citation">(Gaidatzis et al. 2015)</span> bioconductor package to _qu_antify and _a_nnotate _s_hort _r_eads. We recommend to use the <em><a href="https://bioconductor.org/packages/3.13/QuasR">QuasR</a></em> package instead of using <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> directly. The <em><a href="https://bioconductor.org/packages/3.13/QuasR">QuasR</a></em> package provides a simpler interface than <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.</p>
+<a href="#introduction" class="anchor" aria-hidden="true"></a>Introduction</h1>
+<p>The <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> package provides an <strong>R</strong> wrapper around the popular <em>bowtie</em> <span class="citation">(Langmead et al. 2009)</span> short read aligner and around <em>SpliceMap</em> <span class="citation">(Au et al. 2010)</span> a <em>de novo</em> splice junction discovery and alignment tool, which makes use of the <em>bowtie</em> software package.</p>
+<p>The package is used by the <em><a href="https://bioconductor.org/packages/3.14/QuasR" class="external-link">QuasR</a></em> <span class="citation">(Gaidatzis et al. 2015)</span> bioconductor package to _qu_antify and _a_nnotate _s_hort _r_eads. We recommend to use the <em><a href="https://bioconductor.org/packages/3.14/QuasR" class="external-link">QuasR</a></em> package instead of using <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> directly. The <em><a href="https://bioconductor.org/packages/3.14/QuasR" class="external-link">QuasR</a></em> package provides a simpler interface than <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.</p>
 </div>
 <div id="preliminaries" class="section level1">
 <h1 class="hasAnchor">
-<a href="#preliminaries" class="anchor"></a>Preliminaries</h1>
+<a href="#preliminaries" class="anchor" aria-hidden="true"></a>Preliminaries</h1>
 <div id="citing-rbowtie" class="section level2">
 <h2 class="hasAnchor">
-<a href="#citing-rbowtie" class="anchor"></a>Citing <em>Rbowtie</em>
+<a href="#citing-rbowtie" class="anchor" aria-hidden="true"></a>Citing <em>Rbowtie</em>
 </h2>
-<p>If you use <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> <span class="citation">(Hahne, Lerch, and Stadler 2012)</span> in your work, you can cite it as follows:</p>
+<p>If you use <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> <span class="citation">(Hahne, Lerch, and Stadler 2012)</span> in your work, you can cite it as follows:</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="fu"><a href="https://rdrr.io/r/utils/citation.html">citation</a></span><span class="op">(</span><span class="st">"Rbowtie"</span><span class="op">)</span></code></pre></div>
+<code class="sourceCode R"><span class="fu"><a href="https://rdrr.io/r/utils/citation.html" class="external-link">citation</a></span><span class="op">(</span><span class="st">"Rbowtie"</span><span class="op">)</span></code></pre></div>
 <pre><code>## 
 ## The Rbowtie package contains code from two separate software projects.
 ## If using bowtie only, it can be cited as Langmead et al. (2009). If
@@ -129,40 +131,40 @@
 </div>
 <div id="installation" class="section level2">
 <h2 class="hasAnchor">
-<a href="#installation" class="anchor"></a>Installation</h2>
-<p><em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> is a package for the <strong>R</strong> computing environment and it is assumed that you have already installed <strong>R</strong>. See the <strong>R</strong> project at (<a href="http://www.r-project.org" class="uri">http://www.r-project.org</a>). To install the latest version of <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em>, you will need to be using the latest version of <strong>R</strong>. <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> is part of the Bioconductor project at (<a href="http://www.bioconductor.org" class="uri">http://www.bioconductor.org</a>). To get <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> together with its dependencies you can use</p>
+<a href="#installation" class="anchor" aria-hidden="true"></a>Installation</h2>
+<p><em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> is a package for the <strong>R</strong> computing environment and it is assumed that you have already installed <strong>R</strong>. See the <strong>R</strong> project at (<a href="http://www.r-project.org" class="external-link uri">http://www.r-project.org</a>). To install the latest version of <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em>, you will need to be using the latest version of <strong>R</strong>. <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> is part of the Bioconductor project at (<a href="http://www.bioconductor.org" class="external-link uri">http://www.bioconductor.org</a>). To get <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> together with its dependencies you can use</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="kw"><a href="https://rdrr.io/r/base/library.html">require</a></span><span class="op">(</span><span class="st">"BiocManager"</span><span class="op">)</span><span class="op">)</span>
-    <span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html">install.packages</a></span><span class="op">(</span><span class="st">"BiocManager"</span><span class="op">)</span>
-<span class="fu">BiocManager</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/BiocManager/man/install.html">install</a></span><span class="op">(</span><span class="st">"Rbowtie"</span><span class="op">)</span></code></pre></div>
+<code class="sourceCode R"><span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">require</a></span><span class="op">(</span><span class="st">"BiocManager"</span><span class="op">)</span><span class="op">)</span>
+    <span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"BiocManager"</span><span class="op">)</span>
+<span class="fu">BiocManager</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/BiocManager/man/install.html" class="external-link">install</a></span><span class="op">(</span><span class="st">"Rbowtie"</span><span class="op">)</span></code></pre></div>
 </div>
 <div id="loading-of-rbowtie" class="section level2">
 <h2 class="hasAnchor">
-<a href="#loading-of-rbowtie" class="anchor"></a>Loading of <em>Rbowtie</em>
+<a href="#loading-of-rbowtie" class="anchor" aria-hidden="true"></a>Loading of <em>Rbowtie</em>
 </h2>
-<p>In order to run the code examples in this vignette, the <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> library need to be loaded.</p>
+<p>In order to run the code examples in this vignette, the <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> library need to be loaded.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/fmicompbio/Rbowtie">Rbowtie</a></span><span class="op">)</span></code></pre></div>
+<code class="sourceCode R"><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/fmicompbio/Rbowtie" class="external-link">Rbowtie</a></span><span class="op">)</span></code></pre></div>
 </div>
 <div id="how-to-get-help" class="section level2">
 <h2 class="hasAnchor">
-<a href="#how-to-get-help" class="anchor"></a>How to get help</h2>
-<p>Most questions about <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> will hopefully be answered by the documentation or references. If you’ve run into a question which isn’t addressed by the documentation, or you’ve found a conflict between the documentation and software itself, then there is an active support community which can offer help.</p>
+<a href="#how-to-get-help" class="anchor" aria-hidden="true"></a>How to get help</h2>
+<p>Most questions about <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> will hopefully be answered by the documentation or references. If you’ve run into a question which isn’t addressed by the documentation, or you’ve found a conflict between the documentation and software itself, then there is an active support community which can offer help.</p>
 <p>The authors of the package (maintainer: Michael Stadler <a href="mailto:michael.stadler@fmi.ch" class="email">michael.stadler@fmi.ch</a>) always appreciate receiving reports of bugs in the package functions or in the documentation. The same goes for well-considered suggestions for improvements.</p>
-<p>Any other questions or problems concerning <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> should be posted to the Bioconductor support site (<a href="https://support.bioconductor.org" class="uri">https://support.bioconductor.org</a>). Users posting to the support site for the first time should read the helpful posting guide at (<a href="https://support.bioconductor.org/info/faq/" class="uri">https://support.bioconductor.org/info/faq/</a>). Note that each function in <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> has it’s own help page, e.g. <code><a href="../reference/bowtie_build.html">help("bowtie")</a></code>. Posting etiquette requires that you read the relevant help page carefully before posting a problem to the site.</p>
+<p>Any other questions or problems concerning <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> should be posted to the Bioconductor support site (<a href="https://support.bioconductor.org" class="external-link uri">https://support.bioconductor.org</a>). Users posting to the support site for the first time should read the helpful posting guide at (<a href="https://support.bioconductor.org/info/faq/" class="external-link uri">https://support.bioconductor.org/info/faq/</a>). Note that each function in <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> has it’s own help page, e.g. <code><a href="../reference/Rbowtie.html">help("bowtie")</a></code>. Posting etiquette requires that you read the relevant help page carefully before posting a problem to the site.</p>
 </div>
 </div>
 <div id="example-usage-for-individual-rbowtie-functions" class="section level1">
 <h1 class="hasAnchor">
-<a href="#example-usage-for-individual-rbowtie-functions" class="anchor"></a>Example usage for individual Rbowtie functions</h1>
-<p>Please refer to the <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> reference manual or the function documentation (e.g. using <code><a href="../reference/bowtie_build.html">?bowtie</a></code>) for a complete description of <em><a href="https://bioconductor.org/packages/3.13/Rbowtie">Rbowtie</a></em> functions. The descriptions provided below are meant to give and overview over all functions and summarize the purpose of each one.</p>
+<a href="#example-usage-for-individual-rbowtie-functions" class="anchor" aria-hidden="true"></a>Example usage for individual Rbowtie functions</h1>
+<p>Please refer to the <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> reference manual or the function documentation (e.g. using <code><a href="../reference/Rbowtie.html">?bowtie</a></code>) for a complete description of <em><a href="https://bioconductor.org/packages/3.14/Rbowtie" class="external-link">Rbowtie</a></em> functions. The descriptions provided below are meant to give and overview over all functions and summarize the purpose of each one.</p>
 <div id="build-the-reference-index-with-bowtie_build" class="section level2">
 <h2 class="hasAnchor">
-<a href="#build-the-reference-index-with-bowtie_build" class="anchor"></a>Build the reference index with <code id="bowtieBuild">bowtie_build</code>
+<a href="#build-the-reference-index-with-bowtie_build" class="anchor" aria-hidden="true"></a>Build the reference index with <code id="bowtieBuild">bowtie_build</code>
 </h2>
-<p>To be able to align short reads to a genome, an index has to be build first using the function <code>bowtie_build</code>. Information about arguments can be found with the help of the <code>bowtie_build_usage</code> function or in the manual page <code><a href="../reference/bowtie_build.html">?bowtie_build</a></code>.</p>
+<p>To be able to align short reads to a genome, an index has to be build first using the function <code>bowtie_build</code>. Information about arguments can be found with the help of the <code>bowtie_build_usage</code> function or in the manual page <code><a href="../reference/Rbowtie.html">?bowtie_build</a></code>.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="fu"><a href="../reference/bowtie_build.html">bowtie_build_usage</a></span><span class="op">(</span><span class="op">)</span></code></pre></div>
+<code class="sourceCode R"><span class="fu"><a href="../reference/Rbowtie.html">bowtie_build_usage</a></span><span class="op">(</span><span class="op">)</span></code></pre></div>
 <pre><code>##  [1] "Usage: bowtie2-build-s [options]* &lt;reference_in&gt; &lt;ebwt_outfile_base&gt;"            
 ##  [2] "    reference_in            comma-separated list of files with ref sequences"    
 ##  [3] "    ebwt_outfile_base       write Ebwt data to files with this dir/basename"     
@@ -188,13 +190,13 @@
 ## [23] "    --version               print version information and quit"</code></pre>
 <p><code>refFiles</code> below is a vector with filenames of the reference sequence in <code>FASTA</code> format, and <code>indexDir</code> specifies an output directory for the index files that will be generated when calling <code>bowtie_build</code>:</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="va">refFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.files.html">dir</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"refs"</span><span class="op">)</span>, full<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>
-<span class="va">indexDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"refsIndex"</span><span class="op">)</span>
+<code class="sourceCode R"><span class="va">refFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">dir</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"refs"</span><span class="op">)</span>, full<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>
+<span class="va">indexDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"refsIndex"</span><span class="op">)</span>
 
-<span class="va">tmp</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/bowtie_build.html">bowtie_build</a></span><span class="op">(</span>references<span class="op">=</span><span class="va">refFiles</span>, outdir<span class="op">=</span><span class="va">indexDir</span>, prefix<span class="op">=</span><span class="st">"index"</span>, force<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>
-<span class="fu"><a href="https://rdrr.io/r/utils/head.html">head</a></span><span class="op">(</span><span class="va">tmp</span><span class="op">)</span></code></pre></div>
+<span class="va">tmp</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/Rbowtie.html">bowtie_build</a></span><span class="op">(</span>references<span class="op">=</span><span class="va">refFiles</span>, outdir<span class="op">=</span><span class="va">indexDir</span>, prefix<span class="op">=</span><span class="st">"index"</span>, force<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>
+<span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">tmp</span><span class="op">)</span></code></pre></div>
 <pre><code>## [1] "Settings:"                                                                                              
-## [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpOS4wCU/refsIndex/index.*.ebwt\""
+## [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpnRHyBG/refsIndex/index.*.ebwt\""
 ## [3] "  Line rate: 6 (line is 64 bytes)"                                                                      
 ## [4] "  Lines per side: 1 (side is 64 bytes)"                                                                 
 ## [5] "  Offset rate: 5 (one in 32)"                                                                           
@@ -202,11 +204,11 @@
 </div>
 <div id="create-alignment-with-bowtie" class="section level2">
 <h2 class="hasAnchor">
-<a href="#create-alignment-with-bowtie" class="anchor"></a>Create alignment with <code>bowtie</code>
+<a href="#create-alignment-with-bowtie" class="anchor" aria-hidden="true"></a>Create alignment with <code>bowtie</code>
 </h2>
-<p>Information about the arguments supported by the <code>bowtie</code> function can be obtained with the help of the <code>bowtie_usage</code> function or in the manual page <code><a href="../reference/bowtie_build.html">?bowtie</a></code>.</p>
+<p>Information about the arguments supported by the <code>bowtie</code> function can be obtained with the help of the <code>bowtie_usage</code> function or in the manual page <code><a href="../reference/Rbowtie.html">?bowtie</a></code>.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="fu"><a href="../reference/bowtie_build.html">bowtie_usage</a></span><span class="op">(</span><span class="op">)</span></code></pre></div>
+<code class="sourceCode R"><span class="fu"><a href="../reference/Rbowtie.html">bowtie_usage</a></span><span class="op">(</span><span class="op">)</span></code></pre></div>
 <pre><code>##  [1] "Usage: "                                                                                           
 ##  [2] "bowtie-align-s [options]* -x &lt;ebwt&gt; {-1 &lt;m1&gt; -2 &lt;m2&gt; | --12 &lt;r&gt; | --interleaved &lt;i&gt; | &lt;s&gt;} [&lt;hit&gt;]"
 ##  [3] ""                                                                                                  
@@ -292,47 +294,47 @@
 ## [83] "  -h/--help          print this usage message"</code></pre>
 <p>In the example below, <code>readsFiles</code> is the name of a file containing short reads to be aligned with <code>bowtie</code>, and <code>samFiles</code> specifies the name of the output file with the generated alignments.</p>
 <div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="va">readsFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"reads"</span>, <span class="st">"reads.fastq"</span><span class="op">)</span>
-<span class="va">samFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"alignments.sam"</span><span class="op">)</span>
+<code class="sourceCode R"><span class="va">readsFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"reads"</span>, <span class="st">"reads.fastq"</span><span class="op">)</span>
+<span class="va">samFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"alignments.sam"</span><span class="op">)</span>
 
-<span class="fu"><a href="../reference/bowtie_build.html">bowtie</a></span><span class="op">(</span>sequences<span class="op">=</span><span class="va">readsFiles</span>, 
-       index<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html">file.path</a></span><span class="op">(</span><span class="va">indexDir</span>, <span class="st">"index"</span><span class="op">)</span>, 
+<span class="fu"><a href="../reference/Rbowtie.html">bowtie</a></span><span class="op">(</span>sequences<span class="op">=</span><span class="va">readsFiles</span>, 
+       index<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">indexDir</span>, <span class="st">"index"</span><span class="op">)</span>, 
        outfile<span class="op">=</span><span class="va">samFiles</span>, sam<span class="op">=</span><span class="cn">TRUE</span>,
        best<span class="op">=</span><span class="cn">TRUE</span>, force<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>
-<span class="fu"><a href="https://rdrr.io/r/base/strtrim.html">strtrim</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/readLines.html">readLines</a></span><span class="op">(</span><span class="va">samFiles</span><span class="op">)</span>, <span class="fl">65</span><span class="op">)</span></code></pre></div>
-<pre><code>## [1] "@HD\tVN:1.0\tSO:unsorted"                                                  
-## [2] "@SQ\tSN:chr1\tLN:100000"                                                   
-## [3] "@SQ\tSN:chr2\tLN:100000"                                                   
-## [4] "@SQ\tSN:chr3\tLN:100000"                                                   
-## [5] "@PG\tID:Bowtie\tVN:1.3.0\tCL:\"/Users/runner/work/_temp/Library/Rbowt"     
-## [6] "HWUSI-EAS1513_0012:6:48:5769:946#0/1\t0\tchr1\t819\t255\t101M\t*\t0\t0\tTG"
-## [7] "HWUSI-EAS1513_0012:6:48:6908:952#0/1\t0\tchr2\t1133\t255\t101M\t*\t0\t0\tA"
-## [8] "HWUSI-EAS1513_0012:6:48:8070:953#0/1\t0\tchr1\t7543\t255\t101M\t*\t0\t0\tG"</code></pre>
+<span class="fu"><a href="https://rdrr.io/r/base/strtrim.html" class="external-link">strtrim</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/readLines.html" class="external-link">readLines</a></span><span class="op">(</span><span class="va">samFiles</span><span class="op">)</span>, <span class="fl">65</span><span class="op">)</span></code></pre></div>
+<pre><code>## [1] "@HD\tVN:1.0\tSO:unsorted"                                                           
+## [2] "@SQ\tSN:chr1\tLN:100000"                                                            
+## [3] "@SQ\tSN:chr2\tLN:100000"                                                            
+## [4] "@SQ\tSN:chr3\tLN:100000"                                                            
+## [5] "@PG\tID:Bowtie\tVN:1.3.0\tCL:\"/Users/runner/work/_temp/Library/Rbowtie/"           
+## [6] "HWUSI-EAS1513_0012:6:48:5769:946#0/1\t0\tchr1\t819\t255\t101M\t*\t0\t0\tTGGAGTTCATG"
+## [7] "HWUSI-EAS1513_0012:6:48:6908:952#0/1\t0\tchr2\t1133\t255\t101M\t*\t0\t0\tAACATAGTGA"
+## [8] "HWUSI-EAS1513_0012:6:48:8070:953#0/1\t0\tchr1\t7543\t255\t101M\t*\t0\t0\tGTCTGTCTAG"</code></pre>
 </div>
 <div id="create-spliced-alignment-with-splicemap" class="section level2">
 <h2 class="hasAnchor">
-<a href="#create-spliced-alignment-with-splicemap" class="anchor"></a>Create spliced alignment with <code>SpliceMap</code>
+<a href="#create-spliced-alignment-with-splicemap" class="anchor" aria-hidden="true"></a>Create spliced alignment with <code>SpliceMap</code>
 </h2>
 <p>While <code>bowtie</code> only generates ungapped alignments, the <code>SpliceMap</code> function can be used to generate spliced alignments. <code>SpliceMap</code> is itself using <code>bowtie</code>. To use it, it is necessary to create an index of the reference sequence as described in @ref(bowtieBuild). <code>SpliceMap</code> parameters are specified in the form of a named list, which follows closely the configure file format of the original <code>SpliceMap</code> program<span class="citation">(Au et al. 2010)</span>. Be aware that <code>SpliceMap</code> can only be used for reads that are at least 50bp long.</p>
 <div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="va">readsFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"reads"</span>, <span class="st">"reads.fastq"</span><span class="op">)</span>
-<span class="va">refDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"refs"</span>, <span class="st">"chr1.fa"</span><span class="op">)</span>
-<span class="va">indexDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"refsIndex"</span><span class="op">)</span>
-<span class="va">samFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"splicedAlignments.sam"</span><span class="op">)</span>
+<code class="sourceCode R"><span class="va">readsFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"reads"</span>, <span class="st">"reads.fastq"</span><span class="op">)</span>
+<span class="va">refDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"refs"</span>, <span class="st">"chr1.fa"</span><span class="op">)</span>
+<span class="va">indexDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"refsIndex"</span><span class="op">)</span>
+<span class="va">samFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"splicedAlignments.sam"</span><span class="op">)</span>
 
-<span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html">list</a></span><span class="op">(</span>genome_dir<span class="op">=</span><span class="va">refDir</span>,
+<span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>genome_dir<span class="op">=</span><span class="va">refDir</span>,
             reads_list1<span class="op">=</span><span class="va">readsFiles</span>,
             read_format<span class="op">=</span><span class="st">"FASTQ"</span>,
             quality_format<span class="op">=</span><span class="st">"phred-33"</span>,
             outfile<span class="op">=</span><span class="va">samFiles</span>,
-            temp_path<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html">tempdir</a></span><span class="op">(</span><span class="op">)</span>,
+            temp_path<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>,
             max_intron<span class="op">=</span><span class="fl">400000</span>,
             min_intron<span class="op">=</span><span class="fl">20000</span>,
             max_multi_hit<span class="op">=</span><span class="fl">10</span>,
             seed_mismatch<span class="op">=</span><span class="fl">1</span>,
             read_mismatch<span class="op">=</span><span class="fl">2</span>,
             num_chromosome_together<span class="op">=</span><span class="fl">2</span>,
-            bowtie_base_dir<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html">file.path</a></span><span class="op">(</span><span class="va">indexDir</span>, <span class="st">"index"</span><span class="op">)</span>,
+            bowtie_base_dir<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">indexDir</span>, <span class="st">"index"</span><span class="op">)</span>,
             num_threads<span class="op">=</span><span class="fl">4</span>,
             try_hard<span class="op">=</span><span class="st">"yes"</span>,
             selectSingleHit<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>
@@ -347,25 +349,25 @@
 ## [SpliceMap] reordering final output...done</code></pre>
 <div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span class="va">res</span></code></pre></div>
-<pre><code>## [1] "/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpOS4wCU/splicedAlignments.sam"</code></pre>
+<pre><code>## [1] "/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpnRHyBG/splicedAlignments.sam"</code></pre>
 <div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="fu"><a href="https://rdrr.io/r/base/strtrim.html">strtrim</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/readLines.html">readLines</a></span><span class="op">(</span><span class="va">samFiles</span><span class="op">)</span>, <span class="fl">65</span><span class="op">)</span></code></pre></div>
-<pre><code>## [1] "@HD\tVN:1.0\tSO:coordinate"                                                
-## [2] "@SQ\tSN:chr1\tLN:100000"                                                   
-## [3] "@PG\tID:SpliceMap\tVN:3.3.5.2 (55)"                                        
-## [4] "HWUSI-EAS1513_0012:6:48:5769:946#0\t0\tchr1\t819\t255\t101M\t*\t0\t0\tTGGA"
-## [5] "HWUSI-EAS1513_0012:6:48:6908:952#0\t4\t*\t0\t0\t*\t*\t0\t0\tAACATAGTGAAGAA"
-## [6] "HWUSI-EAS1513_0012:6:48:8070:953#0\t0\tchr1\t7543\t255\t101M\t*\t0\t0\tGTC"
-## [7] "HWUSI-EAS1513_0012:6:48:9942:949#0\t4\t*\t0\t0\t*\t*\t0\t0\tCGGTTCCTGTATCC"</code></pre>
+<code class="sourceCode R"><span class="fu"><a href="https://rdrr.io/r/base/strtrim.html" class="external-link">strtrim</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/readLines.html" class="external-link">readLines</a></span><span class="op">(</span><span class="va">samFiles</span><span class="op">)</span>, <span class="fl">65</span><span class="op">)</span></code></pre></div>
+<pre><code>## [1] "@HD\tVN:1.0\tSO:coordinate"                                                         
+## [2] "@SQ\tSN:chr1\tLN:100000"                                                            
+## [3] "@PG\tID:SpliceMap\tVN:3.3.5.2 (55)"                                                 
+## [4] "HWUSI-EAS1513_0012:6:48:5769:946#0\t0\tchr1\t819\t255\t101M\t*\t0\t0\tTGGAGTTCATGTG"
+## [5] "HWUSI-EAS1513_0012:6:48:6908:952#0\t4\t*\t0\t0\t*\t*\t0\t0\tAACATAGTGAAGAAACCTCATAG"
+## [6] "HWUSI-EAS1513_0012:6:48:8070:953#0\t0\tchr1\t7543\t255\t101M\t*\t0\t0\tGTCTGTCTAGTG"
+## [7] "HWUSI-EAS1513_0012:6:48:9942:949#0\t4\t*\t0\t0\t*\t*\t0\t0\tCGGTTCCTGTATCCTTAATAAGT"</code></pre>
 </div>
 </div>
 <div id="session-information" class="section level1">
 <h1 class="hasAnchor">
-<a href="#session-information" class="anchor"></a>Session information</h1>
+<a href="#session-information" class="anchor" aria-hidden="true"></a>Session information</h1>
 <p>The output in this vignette was produced under:</p>
 <div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html">sessionInfo</a></span><span class="op">(</span><span class="op">)</span></code></pre></div>
-<pre><code>## R Under development (unstable) (2021-01-14 r79832)
+<code class="sourceCode R"><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo</a></span><span class="op">(</span><span class="op">)</span></code></pre></div>
+<pre><code>## R version 4.1.0 (2021-05-18)
 ## Platform: x86_64-apple-darwin17.0 (64-bit)
 ## Running under: macOS Catalina 10.15.7
 ## 
@@ -380,28 +382,30 @@
 ## [1] stats     graphics  grDevices utils     datasets  methods   base     
 ## 
 ## other attached packages:
-## [1] Rbowtie_1.31.6   BiocStyle_2.19.1
+## [1] Rbowtie_1.33.0   BiocStyle_2.21.0
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] bookdown_0.21       digest_0.6.27       crayon_1.3.4       
-##  [4] rprojroot_2.0.2     assertthat_0.2.1    R6_2.5.0           
-##  [7] magrittr_2.0.1      evaluate_0.14       stringi_1.5.3      
-## [10] rlang_0.4.10        fs_1.5.0            ragg_0.4.1         
-## [13] rmarkdown_2.6       pkgdown_1.6.1.9000  textshaping_0.2.1  
-## [16] desc_1.2.0          tools_4.1.0         stringr_1.4.0      
-## [19] parallel_4.1.0      yaml_2.2.1          xfun_0.20          
-## [22] compiler_4.1.0      systemfonts_0.3.2   BiocManager_1.30.10
-## [25] memoise_1.1.0       htmltools_0.5.1     knitr_1.30</code></pre>
+##  [1] knitr_1.33          magrittr_2.0.1      R6_2.5.0           
+##  [4] ragg_1.1.2          rlang_0.4.11        fastmap_1.1.0      
+##  [7] stringr_1.4.0       tools_4.1.0         parallel_4.1.0     
+## [10] xfun_0.23           jquerylib_0.1.4     htmltools_0.5.1.1  
+## [13] systemfonts_1.0.2   yaml_2.2.1          digest_0.6.27      
+## [16] rprojroot_2.0.2     pkgdown_1.6.1.9001  crayon_1.4.1       
+## [19] bookdown_0.22       textshaping_0.3.4   BiocManager_1.30.15
+## [22] sass_0.4.0          fs_1.5.0            memoise_2.0.0      
+## [25] cachem_1.0.5        evaluate_0.14       rmarkdown_2.8      
+## [28] stringi_1.6.2       compiler_4.1.0      bslib_0.2.5.1      
+## [31] desc_1.3.0          jsonlite_1.7.2</code></pre>
 </div>
 <div id="references" class="section level1 unnumbered">
 <h1 class="hasAnchor">
-<a href="#references" class="anchor"></a>References</h1>
+<a href="#references" class="anchor" aria-hidden="true"></a>References</h1>
 <div id="refs" class="references">
 <div id="ref-SpliceMap">
 <p>Au, K. F., H. Jiang, L. Lin, Y. Xing, and W. H. Wong. 2010. “Detection of Splice Junctions from Paired-End Rna-Seq Data by Splicemap.” <em>Nucleic Acids Research</em> 38 (14): 4570–8.</p>
 </div>
 <div id="ref-QuasR">
-<p>Gaidatzis, D., A. Lerch, F. Hahne, and M. B. Stadler. 2015. “QuasR: Quantify and Annotate Short Reads in R.” <em>Bioinformatics</em> 31 (7): 1130–2. <a href="https://doi.org/10.1093/bioinformatics/btu781">https://doi.org/10.1093/bioinformatics/btu781</a>.</p>
+<p>Gaidatzis, D., A. Lerch, F. Hahne, and M. B. Stadler. 2015. “QuasR: Quantify and Annotate Short Reads in R.” <em>Bioinformatics</em> 31 (7): 1130–2. <a href="https://doi.org/10.1093/bioinformatics/btu781" class="external-link">https://doi.org/10.1093/bioinformatics/btu781</a>.</p>
 </div>
 <div id="ref-Rbowtie">
 <p>Hahne, F., A. Lerch, and M. B. Stadler. 2012. “Rbowtie: A R Wrapper for Bowtie and SpliceMap Short Read Aligners.”</p>
@@ -424,11 +428,13 @@
 
 
       <footer><div class="copyright">
-  <p>Developed by Michael Stadler.</p>
+  <p></p>
+<p>Developed by Michael Stadler.</p>
 </div>
 
 <div class="pkgdown">
-  <p>Site built with <a href="https://pkgdown.r-lib.org/">pkgdown</a> 1.6.1.9000.</p>
+  <p></p>
+<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link external-link">pkgdown</a> 1.6.1.9001.</p>
 </div>
 
       </footer>
@@ -436,6 +442,8 @@
 
   
 
+
+  
 
   </body>
 </html>

@@ -59,9 +59,16 @@ We recommend to use the QuasR package instead of using bowtie and bowtie_build d
 
 
 
+
+  
+
+  
+
   </head>
 
   <body data-spy="scroll" data-target="#toc">
+    
+
     <div class="container template-reference-topic">
       <header>
       <div class="navbar navbar-default navbar-fixed-top" role="navigation">
@@ -75,7 +82,7 @@ We recommend to use the QuasR package instead of using bowtie and bowtie_build d
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">Rbowtie</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">1.31.6</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="Released version">1.33.0</span>
       </span>
     </div>
 
@@ -127,7 +134,7 @@ We recommend to use the QuasR package instead of using bowtie and bowtie_build d
 <p>We recommend to use the <span class="pkg">QuasR</span> package instead of using <code>bowtie</code> and <code>bowtie_build</code> directly. <span class="pkg">QuasR</span> provides a simpler interface than <span class="pkg">Rbowtie</span> and covers the whole analysis workflow of typical ultra-high throughput sequencing experiments, starting from the raw sequence reads, over pre-processing and alignment, up to quantification.</p>
     </div>
 
-    <pre class="usage"><span class='fu'>bowtie_build</span><span class='op'>(</span><span class='va'>references</span>, <span class='va'>outdir</span>, <span class='va'>...</span>, prefix <span class='op'>=</span> <span class='st'>"index"</span>, force <span class='op'>=</span> <span class='cn'>FALSE</span>,
+    <div class="ref-usage sourceCode"><pre class='sourceCode r'><code><span class='fu'>bowtie_build</span><span class='op'>(</span><span class='va'>references</span>, <span class='va'>outdir</span>, <span class='va'>...</span>, prefix <span class='op'>=</span> <span class='st'>"index"</span>, force <span class='op'>=</span> <span class='cn'>FALSE</span>,
 strict <span class='op'>=</span> <span class='cn'>TRUE</span>, execute <span class='op'>=</span> <span class='cn'>TRUE</span><span class='op'>)</span>
 
 <span class='fu'>bowtie</span><span class='op'>(</span><span class='va'>sequences</span>, <span class='va'>index</span>, <span class='va'>...</span>, type <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span><span class='st'>"single"</span>, <span class='st'>"paired"</span>, <span class='st'>"crossbow"</span><span class='op'>)</span>,
@@ -137,7 +144,7 @@ strict <span class='op'>=</span> <span class='cn'>TRUE</span>, execute <span cla
 
 <span class='fu'>bowtie_usage</span><span class='op'>(</span><span class='op'>)</span>
 
-<span class='fu'>bowtie_version</span><span class='op'>(</span><span class='op'>)</span></pre>
+<span class='fu'>bowtie_version</span><span class='op'>(</span><span class='op'>)</span></code></pre></div>
 
     <h2 class="hasAnchor" id="arguments"><a class="anchor" href="#arguments"></a>Arguments</h2>
     <table class="ref-arguments">
@@ -176,8 +183,8 @@ strict <span class='op'>=</span> <span class='cn'>TRUE</span>, execute <span cla
     </tr>
     <tr>
       <th>type</th>
-      <td><p>Character scalar, one in <code><a href='https://rdrr.io/r/base/c.html'>c("single", "paired",
-      "crossbow")</a></code>. If <code>single</code>, the input sequences are
+      <td><p>Character scalar, one in <code>c("single", "paired",
+      "crossbow")</code>. If <code>single</code>, the input sequences are
     interpreted as single reads. If <code>paired</code>, they are supposed
     to be mate pair reads and if <code>crossbow</code>, they are considered
     to be Crossbow-style reads.</p></td>
@@ -246,43 +253,50 @@ strict <span class='op'>=</span> <span class='cn'>TRUE</span>, execute <span cla
     <p>Florian Hahne</p>
 
     <h2 class="hasAnchor" id="examples"><a class="anchor" href="#examples"></a>Examples</h2>
-    <pre class="examples"><div class='input'><span class='va'>td</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/tempfile.html'>tempdir</a></span><span class='op'>(</span><span class='op'>)</span>
-
-<span class='co'>## Building a bowtie index</span>
-<span class='va'>refs</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/system.file.html'>system.file</a></span><span class='op'>(</span>package<span class='op'>=</span><span class='st'>"Rbowtie"</span>, <span class='st'>"samples"</span>, <span class='st'>"refs"</span><span class='op'>)</span>,
-full<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span>
-<span class='va'>tmp</span> <span class='op'>&lt;-</span> <span class='fu'>bowtie_build</span><span class='op'>(</span>references<span class='op'>=</span><span class='va'>refs</span>, outdir<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span><span class='op'>)</span>,
-force<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span>
-<span class='fu'><a href='https://rdrr.io/r/utils/head.html'>head</a></span><span class='op'>(</span><span class='va'>tmp</span><span class='op'>)</span>
-</div><div class='output co'>#&gt; [1] "Settings:"                                                                                          
-#&gt; [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpOYRZOu/index/index.*.ebwt\""
-#&gt; [3] "  Line rate: 6 (line is 64 bytes)"                                                                  
-#&gt; [4] "  Lines per side: 1 (side is 64 bytes)"                                                             
-#&gt; [5] "  Offset rate: 5 (one in 32)"                                                                       
-#&gt; [6] "  FTable chars: 10"                                                                                 </div><div class='input'><span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span><span class='op'>)</span><span class='op'>)</span>
-</div><div class='output co'>#&gt; [1] "index.1.ebwt"     "index.2.ebwt"     "index.3.ebwt"     "index.4.ebwt"    
-#&gt; [5] "index.rev.1.ebwt" "index.rev.2.ebwt"</div><div class='input'><span class='va'>tmp2</span> <span class='op'>&lt;-</span> <span class='fu'>bowtie_build</span><span class='op'>(</span>references<span class='op'>=</span><span class='va'>refs</span>, outdir<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>,<span class='st'>"indexColor"</span><span class='op'>)</span>,
-force<span class='op'>=</span><span class='cn'>TRUE</span>, C<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span>
-</div><div class='output co'>#&gt; <span class='warning'>Warning: running command ''/Users/runner/work/_temp/Library/Rbowtie/bowtie-build' -C '/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr1.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr2.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr3.fa' '/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpOYRZOu/indexColor/index'' had status 1</span></div><div class='input'><span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"indexColor"</span><span class='op'>)</span><span class='op'>)</span>
-</div><div class='output co'>#&gt; character(0)</div><div class='input'><span class='fu'><a href='https://rdrr.io/r/utils/head.html'>head</a></span><span class='op'>(</span><span class='va'>tmp2</span><span class='op'>)</span>
-</div><div class='output co'>#&gt; character(0)</div><div class='input'>
-
-<span class='co'>## Alignments</span>
-<span class='va'>reads</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/system.file.html'>system.file</a></span><span class='op'>(</span>package<span class='op'>=</span><span class='st'>"Rbowtie"</span>, <span class='st'>"samples"</span>, <span class='st'>"reads"</span>, <span class='st'>"reads.fastq"</span><span class='op'>)</span>
-<span class='va'>tmp</span> <span class='op'>&lt;-</span> <span class='fu'>bowtie</span><span class='op'>(</span>sequences<span class='op'>=</span><span class='va'>reads</span>, index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span>, <span class='st'>"index"</span><span class='op'>)</span><span class='op'>)</span>
-<span class='va'>tmp</span>
-</div><div class='output co'>#&gt; [1] "HWUSI-EAS1513_0012:6:48:5769:946#0/1\t+\tchr1\t818\tTGGAGTTCATGTGAACAGCATATAATTAGGTCTTGCTTTTATTCTAATATGATATATTCTATTAGTTGATATATTTAAACTGCCACAACTTAATGTAATTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t" 
-#&gt; [2] "HWUSI-EAS1513_0012:6:48:6908:952#0/1\t+\tchr2\t1132\tAACATAGTGAAGAAACCTCATAGAACCAGAGAAGTTGTGTGTTTCCATGCAGCTAAAATCTTGCTTAATCTGAGAAGCTCAGTTCTATGAAGCCTTACAAC\tBIGGFMONROYYYYY__________ILJJL_____WMQQQPTPPV__b___QQ____W__BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"
-#&gt; [3] "HWUSI-EAS1513_0012:6:48:8070:953#0/1\t+\tchr1\t7542\tGTCTGTCTAGTGGAGGGGAAGCCGGTGGAGCGATCGTGTGGAAGAGGAAGCGGGATCTGCAGGAGTTACTGCAGAGTATAAAGAAAATCAATGTTGGGGTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"</div><div class='input'><span class='fu'>bowtie</span><span class='op'>(</span>sequences<span class='op'>=</span><span class='va'>reads</span>, index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span>, <span class='st'>"index"</span><span class='op'>)</span>,
-outfile<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"alignments.txt"</span><span class='op'>)</span>, best<span class='op'>=</span><span class='cn'>TRUE</span>, force<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span>
-<span class='fu'><a href='https://rdrr.io/r/base/readLines.html'>readLines</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"alignments.txt"</span><span class='op'>)</span><span class='op'>)</span>
-</div><div class='output co'>#&gt; [1] "HWUSI-EAS1513_0012:6:48:5769:946#0/1\t+\tchr1\t818\tTGGAGTTCATGTGAACAGCATATAATTAGGTCTTGCTTTTATTCTAATATGATATATTCTATTAGTTGATATATTTAAACTGCCACAACTTAATGTAATTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t" 
-#&gt; [2] "HWUSI-EAS1513_0012:6:48:6908:952#0/1\t+\tchr2\t1132\tAACATAGTGAAGAAACCTCATAGAACCAGAGAAGTTGTGTGTTTCCATGCAGCTAAAATCTTGCTTAATCTGAGAAGCTCAGTTCTATGAAGCCTTACAAC\tBIGGFMONROYYYYY__________ILJJL_____WMQQQPTPPV__b___QQ____W__BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"
-#&gt; [3] "HWUSI-EAS1513_0012:6:48:8070:953#0/1\t+\tchr1\t7542\tGTCTGTCTAGTGGAGGGGAAGCCGGTGGAGCGATCGTGTGGAAGAGGAAGCGGGATCTGCAGGAGTTACTGCAGAGTATAAAGAAAATCAATGTTGGGGTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"</div><div class='input'>
-<span class='fu'>bowtie</span><span class='op'>(</span>sequences<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/list.html'>list</a></span><span class='op'>(</span><span class='st'>"TGGGTGGGGTATTCTAGAAATTTCTATTAATCCT"</span>,
-                      <span class='st'>"TCTGTTCAAGTCAGATGGTCACCAATCTGAAGAC"</span><span class='op'>)</span>,
-index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span>, <span class='st'>"index"</span><span class='op'>)</span>, type<span class='op'>=</span><span class='st'>"paired"</span>, c<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span>
-</div></pre>
+    <div class="ref-examples sourceCode"><pre class='sourceCode r'><code><span class='r-in'><span class='va'>td</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/tempfile.html'>tempdir</a></span><span class='op'>(</span><span class='op'>)</span></span>
+<span class='r-in'></span>
+<span class='r-in'><span class='co'>## Building a bowtie index</span></span>
+<span class='r-in'><span class='va'>refs</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/system.file.html'>system.file</a></span><span class='op'>(</span>package<span class='op'>=</span><span class='st'>"Rbowtie"</span>, <span class='st'>"samples"</span>, <span class='st'>"refs"</span><span class='op'>)</span>,</span>
+<span class='r-in'>full<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span></span>
+<span class='r-in'><span class='va'>tmp</span> <span class='op'>&lt;-</span> <span class='fu'>bowtie_build</span><span class='op'>(</span>references<span class='op'>=</span><span class='va'>refs</span>, outdir<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span><span class='op'>)</span>,</span>
+<span class='r-in'>force<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span></span>
+<span class='r-in'><span class='fu'><a href='https://rdrr.io/r/utils/head.html'>head</a></span><span class='op'>(</span><span class='va'>tmp</span><span class='op'>)</span></span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [1] "Settings:"                                                                                          </span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//Rtmp8JpdmN/index/index.*.ebwt\""</span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [3] "  Line rate: 6 (line is 64 bytes)"                                                                  </span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [4] "  Lines per side: 1 (side is 64 bytes)"                                                             </span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [5] "  Offset rate: 5 (one in 32)"                                                                       </span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [6] "  FTable chars: 10"                                                                                 </span>
+<span class='r-in'><span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span><span class='op'>)</span><span class='op'>)</span></span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [1] "index.1.ebwt"     "index.2.ebwt"     "index.3.ebwt"     "index.4.ebwt"    </span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [5] "index.rev.1.ebwt" "index.rev.2.ebwt"</span>
+<span class='r-in'><span class='va'>tmp2</span> <span class='op'>&lt;-</span> <span class='fu'>bowtie_build</span><span class='op'>(</span>references<span class='op'>=</span><span class='va'>refs</span>, outdir<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>,<span class='st'>"indexColor"</span><span class='op'>)</span>,</span>
+<span class='r-in'>force<span class='op'>=</span><span class='cn'>TRUE</span>, C<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span></span>
+<span class='r-wrn co'><span class='r-pr'>#&gt;</span> <span class='warning'>Warning: </span>running command ''/Users/runner/work/_temp/Library/Rbowtie/bowtie-build' -C '/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr1.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr2.fa','/Users/runner/work/_temp/Library/Rbowtie/samples/refs/chr3.fa' '/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//Rtmp8JpdmN/indexColor/index'' had status 1</span>
+<span class='r-in'><span class='fu'><a href='https://rdrr.io/r/base/list.files.html'>dir</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"indexColor"</span><span class='op'>)</span><span class='op'>)</span></span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> character(0)</span>
+<span class='r-in'><span class='fu'><a href='https://rdrr.io/r/utils/head.html'>head</a></span><span class='op'>(</span><span class='va'>tmp2</span><span class='op'>)</span></span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> character(0)</span>
+<span class='r-in'></span>
+<span class='r-in'></span>
+<span class='r-in'><span class='co'>## Alignments</span></span>
+<span class='r-in'><span class='va'>reads</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/system.file.html'>system.file</a></span><span class='op'>(</span>package<span class='op'>=</span><span class='st'>"Rbowtie"</span>, <span class='st'>"samples"</span>, <span class='st'>"reads"</span>, <span class='st'>"reads.fastq"</span><span class='op'>)</span></span>
+<span class='r-in'><span class='va'>tmp</span> <span class='op'>&lt;-</span> <span class='fu'>bowtie</span><span class='op'>(</span>sequences<span class='op'>=</span><span class='va'>reads</span>, index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span>, <span class='st'>"index"</span><span class='op'>)</span><span class='op'>)</span></span>
+<span class='r-in'><span class='va'>tmp</span></span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [1] "HWUSI-EAS1513_0012:6:48:5769:946#0/1\t+\tchr1\t818\tTGGAGTTCATGTGAACAGCATATAATTAGGTCTTGCTTTTATTCTAATATGATATATTCTATTAGTTGATATATTTAAACTGCCACAACTTAATGTAATTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t" </span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [2] "HWUSI-EAS1513_0012:6:48:6908:952#0/1\t+\tchr2\t1132\tAACATAGTGAAGAAACCTCATAGAACCAGAGAAGTTGTGTGTTTCCATGCAGCTAAAATCTTGCTTAATCTGAGAAGCTCAGTTCTATGAAGCCTTACAAC\tBIGGFMONROYYYYY__________ILJJL_____WMQQQPTPPV__b___QQ____W__BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"</span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [3] "HWUSI-EAS1513_0012:6:48:8070:953#0/1\t+\tchr1\t7542\tGTCTGTCTAGTGGAGGGGAAGCCGGTGGAGCGATCGTGTGGAAGAGGAAGCGGGATCTGCAGGAGTTACTGCAGAGTATAAAGAAAATCAATGTTGGGGTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"</span>
+<span class='r-in'><span class='fu'>bowtie</span><span class='op'>(</span>sequences<span class='op'>=</span><span class='va'>reads</span>, index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span>, <span class='st'>"index"</span><span class='op'>)</span>,</span>
+<span class='r-in'>outfile<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"alignments.txt"</span><span class='op'>)</span>, best<span class='op'>=</span><span class='cn'>TRUE</span>, force<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span></span>
+<span class='r-in'><span class='fu'><a href='https://rdrr.io/r/base/readLines.html'>readLines</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"alignments.txt"</span><span class='op'>)</span><span class='op'>)</span></span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [1] "HWUSI-EAS1513_0012:6:48:5769:946#0/1\t+\tchr1\t818\tTGGAGTTCATGTGAACAGCATATAATTAGGTCTTGCTTTTATTCTAATATGATATATTCTATTAGTTGATATATTTAAACTGCCACAACTTAATGTAATTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t" </span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [2] "HWUSI-EAS1513_0012:6:48:6908:952#0/1\t+\tchr2\t1132\tAACATAGTGAAGAAACCTCATAGAACCAGAGAAGTTGTGTGTTTCCATGCAGCTAAAATCTTGCTTAATCTGAGAAGCTCAGTTCTATGAAGCCTTACAAC\tBIGGFMONROYYYYY__________ILJJL_____WMQQQPTPPV__b___QQ____W__BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"</span>
+<span class='r-out co'><span class='r-pr'>#&gt;</span> [3] "HWUSI-EAS1513_0012:6:48:8070:953#0/1\t+\tchr1\t7542\tGTCTGTCTAGTGGAGGGGAAGCCGGTGGAGCGATCGTGTGGAAGAGGAAGCGGGATCTGCAGGAGTTACTGCAGAGTATAAAGAAAATCAATGTTGGGGTA\tBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\t0\t"</span>
+<span class='r-in'></span>
+<span class='r-in'><span class='fu'>bowtie</span><span class='op'>(</span>sequences<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/list.html'>list</a></span><span class='op'>(</span><span class='st'>"TGGGTGGGGTATTCTAGAAATTTCTATTAATCCT"</span>,</span>
+<span class='r-in'>                      <span class='st'>"TCTGTTCAAGTCAGATGGTCACCAATCTGAAGAC"</span><span class='op'>)</span>,</span>
+<span class='r-in'>index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/file.path.html'>file.path</a></span><span class='op'>(</span><span class='va'>td</span>, <span class='st'>"index"</span>, <span class='st'>"index"</span><span class='op'>)</span>, type<span class='op'>=</span><span class='st'>"paired"</span>, c<span class='op'>=</span><span class='cn'>TRUE</span><span class='op'>)</span></span>
+</code></pre></div>
   </div>
   <div class="col-md-3 hidden-xs hidden-sm" id="pkgdown-sidebar">
     <nav id="toc" data-toggle="toc" class="sticky-top">
@@ -294,11 +308,11 @@ index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/f
 
       <footer>
       <div class="copyright">
-  <p>Developed by Michael Stadler.</p>
+  <p><p>Developed by Michael Stadler.</p></p>
 </div>
 
 <div class="pkgdown">
-  <p>Site built with <a href="https://pkgdown.r-lib.org/">pkgdown</a> 1.6.1.9000.</p>
+  <p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 1.6.1.9001.</p></p>
 </div>
 
       </footer>
@@ -306,6 +320,8 @@ index<span class='op'>=</span><span class='fu'><a href='https://rdrr.io/r/base/f
 
   
 
+
+  
 
   </body>
 </html>
