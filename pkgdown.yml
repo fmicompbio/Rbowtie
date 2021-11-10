@@ -1,7 +1,7 @@
 pandoc: 2.7.3
-pkgdown: 1.6.1.9001
-pkgdown_sha: 3b870d0efcfcf92a42aa881d58c3462cdbb110a8
+pkgdown: 1.9000.9000.9000
+pkgdown_sha: 8122179c440692487eda000d6542d7734a37d36d
 articles:
   Rbowtie-Overview: Rbowtie-Overview.html
-last_built: 2021-05-27T15:11Z
+last_built: 2021-11-10T07:44Z
 
