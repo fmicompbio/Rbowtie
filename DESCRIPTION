@@ -1,7 +1,7 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.35.0
+Version: 1.37.0
 Date: 2021-01-15
 Author: Florian Hahne, Anita Lerch, Michael B Stadler
 Maintainer: Michael Stadler <michael.stadler@fmi.ch>
