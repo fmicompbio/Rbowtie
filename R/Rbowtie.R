@@ -97,22 +97,22 @@ bowtie_version <- function(){
 ## values will be collapsed into a single comma-separated scalar.
 .createFlags <- function(flagList)
 {
-    if(!length(flagList))
+    if (!length(flagList))
         return("")
-    if(is.null(names(flagList)) || any(names(flagList)==""))
+    if (is.null(names(flagList)) || any(names(flagList) == ""))
         stop("Unable to create command line arguments from input.")
-    logFlags <- sapply(flagList, is.logical)
+    logFlags <- vapply(flagList, is.logical, logical(1L))
     flags <- NULL
-    if(any(logFlags))
+    if (any(logFlags))
     {
-        fnames <- names(flagList)[logFlags][sapply(flagList[logFlags], function(x) x[1])]
-        flags <- paste(sapply(fnames, function(x) ifelse(nchar(x)==1, sprintf("-%s", x), sprintf("--%s", x))),
-                       collapse=" ")
+        fnames <- names(flagList)[logFlags][vapply(flagList[logFlags], function(x) x[1], logical(1L))]
+        flags <- paste(unlist(lapply(fnames, function(x) ifelse(nchar(x) == 1, sprintf("-%s", x), sprintf("--%s", x)))),
+                       collapse = " ")
     }
-    fnames <- sapply(names(flagList)[!logFlags], function(x) ifelse(nchar(x)==1, sprintf("-%s", x),
-                                                                    sprintf("--%s", x)))
-    flags <- paste(flags, paste(fnames, sapply(flagList[!logFlags], paste, collapse=","),
-                                collapse=" ", sep=" "), collapse=" ")
+    fnames <- unlist(lapply(names(flagList)[!logFlags], function(x) ifelse(nchar(x) == 1, sprintf("-%s", x),
+                                                                    sprintf("--%s", x))))
+    flags <- paste(flags, paste(fnames, vapply(flagList[!logFlags], function(x) paste(x, collapse = ","), character(1L)),
+                                collapse = " ", sep = " "), collapse = " ")
     return(gsub("^ *| *$", "", flags))
 }
 
@@ -120,15 +120,15 @@ bowtie_version <- function(){
 ## A helper function to call one of the two bowtie binaries with additional arguments.
 .bowtieBin <- function(bin=c("bowtie", "bowtie-build"), args="", execute=TRUE)
 {
-    if(is.null(args) || args=="")
+    if (is.null(args) || args == "")
         stop("The bowtie binaries need to be called with additional arguments")
     args <- gsub("^ *| *$", "", args)
     bin <- match.arg(bin)
-    call <- paste(shQuote(file.path(system.file(package="Rbowtie"), bin)), args)
+    call <- paste(shQuote(file.path(system.file(package = "Rbowtie"), bin)), args)
     if (!execute) {
       return(call)
     }
-    output <- system(call, intern=TRUE)
+    output <- system(call, intern = TRUE)
     return(output)
 }
 
