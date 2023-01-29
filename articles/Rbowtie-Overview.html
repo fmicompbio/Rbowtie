@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">Rbowtie</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">1.39.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">1.39.1</span>
       </span>
     </div>
 
@@ -244,7 +244,7 @@ that will be generated when calling <code>bowtie_build</code>:</p>
 <span><span class="va">tmp</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/Rbowtie.html">bowtie_build</a></span><span class="op">(</span>references<span class="op">=</span><span class="va">refFiles</span>, outdir<span class="op">=</span><span class="va">indexDir</span>, prefix<span class="op">=</span><span class="st">"index"</span>, force<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">tmp</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## [1] "Settings:"                                                                                              </span></span>
-<span><span class="co">## [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpnSLaQl/refsIndex/index.*.ebwt\""</span></span>
+<span><span class="co">## [2] "  Output files: \"/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpiUFRIl/refsIndex/index.*.ebwt\""</span></span>
 <span><span class="co">## [3] "  Line rate: 6 (line is 64 bytes)"                                                                      </span></span>
 <span><span class="co">## [4] "  Lines per side: 1 (side is 64 bytes)"                                                                 </span></span>
 <span><span class="co">## [5] "  Offset rate: 5 (one in 32)"                                                                           </span></span>
@@ -409,7 +409,7 @@ long.</p>
 <span><span class="co">## [SpliceMap] reordering final output...done</span></span></code></pre>
 <div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res</span></span></code></pre></div>
-<pre><code><span><span class="co">## [1] "/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpnSLaQl/splicedAlignments.sam"</span></span></code></pre>
+<pre><code><span><span class="co">## [1] "/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T//RtmpiUFRIl/splicedAlignments.sam"</span></span></code></pre>
 <div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/strtrim.html" class="external-link">strtrim</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/readLines.html" class="external-link">readLines</a></span><span class="op">(</span><span class="va">samFiles</span><span class="op">)</span>, <span class="fl">65</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## [1] "@HD\tVN:1.0\tSO:coordinate"                                                         </span></span>
@@ -445,7 +445,7 @@ long.</p>
 <span><span class="co">## [1] stats     graphics  grDevices utils     datasets  methods   base     </span></span>
 <span><span class="co">## </span></span>
 <span><span class="co">## other attached packages:</span></span>
-<span><span class="co">## [1] Rbowtie_1.39.0   BiocStyle_2.27.1</span></span>
+<span><span class="co">## [1] Rbowtie_1.39.1   BiocStyle_2.27.1</span></span>
 <span><span class="co">## </span></span>
 <span><span class="co">## loaded via a namespace (and not attached):</span></span>
 <span><span class="co">##  [1] vctrs_0.5.2         cli_3.6.0           knitr_1.42         </span></span>
@@ -502,7 +502,7 @@ to the Human Genome.”</span> <em>Genome Biology</em> 10 (3): R25.
 
       <footer><div class="copyright">
   <p></p>
-<p>Developed by Michael Stadler.</p>
+<p>Developed by Florian Hahne, Anita Lerch, Michael Stadler.</p>
 </div>
 
 <div class="pkgdown">
