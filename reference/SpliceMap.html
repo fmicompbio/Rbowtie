@@ -18,7 +18,7 @@ We recommend to use the QuasR package instead of using SpliceMap directly. QuasR
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">Rbowtie</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">1.37.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">1.39.0</span>
       </span>
     </div>
 
@@ -62,7 +62,7 @@ We recommend to use the QuasR package instead of using SpliceMap directly. QuasR
     </div>
 
     <div id="ref-usage">
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="fu">SpliceMap</span><span class="op">(</span><span class="va">cfg</span><span class="op">)</span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">SpliceMap</span><span class="op">(</span><span class="va">cfg</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div id="arguments">
@@ -70,6 +70,8 @@ We recommend to use the QuasR package instead of using SpliceMap directly. QuasR
     <dl><dt>cfg</dt>
 <dd><p>A list containing named elements with SpliceMap parameters
     (see sQuoteDetails or SpliceMap documentation).</p></dd>
+
+ 
 </dl></div>
     <div id="details">
     <h2>Details</h2>
@@ -186,9 +188,15 @@ We recommend to use the QuasR package instead of using SpliceMap directly. QuasR
 </ul></div>
     <div id="value">
     <h2>Value</h2>
-    <p>An invisible character vector of length one with the file name of the
-  generated output SAM file.
-  An exception is thrown if a failure is detected at one of the many steps.</p>
+    
+
+<p>An invisible character vector of length one with the file name of the
+  generated output SAM file.</p>
+
+
+<p>An exception is thrown if a failure is detected at one of the many steps.</p>
+  
+
     </div>
     <div id="references">
     <h2>References</h2>
@@ -207,34 +215,34 @@ We recommend to use the QuasR package instead of using SpliceMap directly. QuasR
 
     <div id="ref-examples">
     <h2>Examples</h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span class="co">## Building a bowtie index</span></span>
-<span class="r-in"><span class="va">refDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"refs"</span><span class="op">)</span></span>
-<span class="r-in"><span class="va">indexDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"refsIndex"</span><span class="op">)</span></span>
-<span class="r-in"></span>
-<span class="r-in"><span class="va">tmp</span> <span class="op">&lt;-</span> <span class="fu"><a href="Rbowtie.html">bowtie_build</a></span><span class="op">(</span>references<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">dir</a></span><span class="op">(</span><span class="va">refDir</span>, full<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>, outdir<span class="op">=</span><span class="va">indexDir</span>, prefix<span class="op">=</span><span class="st">"index"</span>, force<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span>
-<span class="r-in"></span>
-<span class="r-in"><span class="co">## Alignments</span></span>
-<span class="r-in"><span class="va">readsFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"reads"</span>, <span class="st">"reads.fastq"</span><span class="op">)</span></span>
-<span class="r-in"><span class="va">samFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"splicedAlignments.sam"</span><span class="op">)</span></span>
-<span class="r-in"></span>
-<span class="r-in"><span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>genome_dir<span class="op">=</span><span class="va">refDir</span>,</span>
-<span class="r-in">            reads_list1<span class="op">=</span><span class="va">readsFiles</span>,</span>
-<span class="r-in">            read_format<span class="op">=</span><span class="st">"FASTQ"</span>,</span>
-<span class="r-in">            quality_format<span class="op">=</span><span class="st">"phred-33"</span>,</span>
-<span class="r-in">            outfile<span class="op">=</span><span class="va">samFiles</span>,</span>
-<span class="r-in">            temp_path<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>,</span>
-<span class="r-in">            max_intron<span class="op">=</span><span class="fl">400000</span>,</span>
-<span class="r-in">            min_intron<span class="op">=</span><span class="fl">20000</span>,</span>
-<span class="r-in">            max_multi_hit<span class="op">=</span><span class="fl">10</span>,</span>
-<span class="r-in">            seed_mismatch<span class="op">=</span><span class="fl">1</span>,</span>
-<span class="r-in">            read_mismatch<span class="op">=</span><span class="fl">2</span>,</span>
-<span class="r-in">            num_chromosome_together<span class="op">=</span><span class="fl">2</span>,</span>
-<span class="r-in">            bowtie_base_dir<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">indexDir</span>, <span class="st">"index"</span><span class="op">)</span>,</span>
-<span class="r-in">            num_threads<span class="op">=</span><span class="fl">4</span>,</span>
-<span class="r-in">            try_hard<span class="op">=</span><span class="st">"yes"</span>,</span>
-<span class="r-in">            selectSingleHit<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span>
-<span class="r-in">            </span>
-<span class="r-in"><span class="va">res</span> <span class="op">&lt;-</span> <span class="fu">SpliceMap</span><span class="op">(</span><span class="va">cfg</span><span class="op">)</span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co">## Building a bowtie index</span></span></span>
+<span class="r-in"><span><span class="va">refDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"refs"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">indexDir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"refsIndex"</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="va">tmp</span> <span class="op">&lt;-</span> <span class="fu"><a href="Rbowtie.html">bowtie_build</a></span><span class="op">(</span>references<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">dir</a></span><span class="op">(</span><span class="va">refDir</span>, full<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span>, outdir<span class="op">=</span><span class="va">indexDir</span>, prefix<span class="op">=</span><span class="st">"index"</span>, force<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co">## Alignments</span></span></span>
+<span class="r-in"><span><span class="va">readsFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span>package<span class="op">=</span><span class="st">"Rbowtie"</span>, <span class="st">"samples"</span>, <span class="st">"reads"</span>, <span class="st">"reads.fastq"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">samFiles</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"splicedAlignments.sam"</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>genome_dir<span class="op">=</span><span class="va">refDir</span>,</span></span>
+<span class="r-in"><span>            reads_list1<span class="op">=</span><span class="va">readsFiles</span>,</span></span>
+<span class="r-in"><span>            read_format<span class="op">=</span><span class="st">"FASTQ"</span>,</span></span>
+<span class="r-in"><span>            quality_format<span class="op">=</span><span class="st">"phred-33"</span>,</span></span>
+<span class="r-in"><span>            outfile<span class="op">=</span><span class="va">samFiles</span>,</span></span>
+<span class="r-in"><span>            temp_path<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>            max_intron<span class="op">=</span><span class="fl">400000</span>,</span></span>
+<span class="r-in"><span>            min_intron<span class="op">=</span><span class="fl">20000</span>,</span></span>
+<span class="r-in"><span>            max_multi_hit<span class="op">=</span><span class="fl">10</span>,</span></span>
+<span class="r-in"><span>            seed_mismatch<span class="op">=</span><span class="fl">1</span>,</span></span>
+<span class="r-in"><span>            read_mismatch<span class="op">=</span><span class="fl">2</span>,</span></span>
+<span class="r-in"><span>            num_chromosome_together<span class="op">=</span><span class="fl">2</span>,</span></span>
+<span class="r-in"><span>            bowtie_base_dir<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">indexDir</span>, <span class="st">"index"</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>            num_threads<span class="op">=</span><span class="fl">4</span>,</span></span>
+<span class="r-in"><span>            try_hard<span class="op">=</span><span class="st">"yes"</span>,</span></span>
+<span class="r-in"><span>            selectSingleHit<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span></span>
+<span class="r-in"><span>            </span></span>
+<span class="r-in"><span><span class="va">res</span> <span class="op">&lt;-</span> <span class="fu">SpliceMap</span><span class="op">(</span><span class="va">cfg</span><span class="op">)</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> [SpliceMap] splitting reads into 25mers...</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> done</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> [SpliceMap] aligning 25mers...</span>
@@ -265,7 +273,7 @@ We recommend to use the QuasR package instead of using SpliceMap directly. QuasR
 </div>
 
 <div class="pkgdown">
-  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.3.9000.</p>
+  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.7.</p>
 </div>
 
       </footer></div>
