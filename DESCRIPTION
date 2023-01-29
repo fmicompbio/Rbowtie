@@ -1,10 +1,15 @@
 Package: Rbowtie
 Type: Package
 Title: R bowtie wrapper
-Version: 1.39.0
-Date: 2021-01-15
-Author: Florian Hahne, Anita Lerch, Michael B Stadler
+Version: 1.39.1
+Date: 2023-01-29
+Authors@R: c(person("Florian", "Hahne", role = c("aut")),
+             person("Anita", "Lerch", role = c("aut")),
+             person("Michael", "Stadler", role = c("aut", "cre"), 
+                    email = "michael.stadler@fmi.ch", 
+                    comment = c(ORCID = "0000-0002-2269-4934")))
 Maintainer: Michael Stadler <michael.stadler@fmi.ch>
+Imports: utils
 Suggests: testthat,
     parallel,
     BiocStyle,
