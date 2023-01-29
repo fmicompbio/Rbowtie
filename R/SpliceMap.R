@@ -196,7 +196,7 @@ SpliceMap <- function(cfg) {
     req <- c("genome_dir","reads_list1","read_format","bowtie_base_dir","temp_path","num_threads","outfile","selectSingleHit")
     if (length(f <- req[!req %in% names(lst)]))
         stop("required settings are missing for SpliceMap config file: ",
-             paste(f, collapse = ", ")))
+             paste(f, collapse = ", "))
 
     if (lst[['read_format']] == 'FASTQ') {
         # check quality string
