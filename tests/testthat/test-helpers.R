@@ -41,7 +41,7 @@ test_that(".write_cfg works", {
     td2 <- tempfile() # fake genome dir
     dir.create(td1)
     dir.create(td2)
-    for (i in 1:6) {
+    for (i in seq.int(6)) {
         writeLines("fake", file.path(td1, paste0("fake_index_", i, ".ebwt")))
         writeLines("fake", file.path(td2, paste0("chr", i, ".fa")))
     }
@@ -91,10 +91,10 @@ test_that(".write_cfg works", {
     resLines <- readLines(tf1)
     expect_length(resLines, 32L)
     expect_identical(resLines[c(3,6)],
-                     system.file("extdata", "reads", paste0("reads",1:2,".fastq"),
+                     system.file("extdata", "reads", paste0("reads",seq.int(2),".fastq"),
                                  package = "Rbowtie"))
     expect_identical(resLines[9:14],
-                     normalizePath(file.path(td2, paste0("chr", 1:6, ".fa")), winslash = "/"))
+                     normalizePath(file.path(td2, paste0("chr", seq.int(6), ".fa")), winslash = "/"))
     expect_identical(resLines[16], paste("genome_dir","=",td2))
     expect_identical(resLines[19], paste("bowtie_base_dir","=",td1))
     expect_identical(resLines[22], paste("outfile","=",tf2))

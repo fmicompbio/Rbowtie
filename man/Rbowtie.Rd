@@ -88,7 +88,7 @@ bowtie_version()
   with additional input are supposed to be character or numeric vectors,
   where the individual vector elements are collapsed into a single
   comma-separated string (e.g., \code{k=2} is translated into \code{k
-  2}, \code{bmax=100} into \code{--bmax 100}, \code{3=letters[1:3]} into
+  2}, \code{bmax=100} into \code{--bmax 100}, \code{3=letters[c(1,2,3)]} into
   \code{-3 a,b,c}, and so on). Note that some arguments to the bowtie
   binary will be ignored if they are already handled as explicit
   function arguments. See the output of \code{bowtie_usage()} and

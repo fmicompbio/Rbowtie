@@ -42,7 +42,7 @@ bowtie <- function(sequences, index, ..., type=c("single", "paired", "crossbow")
                          if(!is.list(sequences) || length(sequences)!=2)
                              stop("Argument 'sequences' must be a list of length 2.")
                          tmp <- NULL
-                         for(i in 1:2)
+                         for(i in seq.int(2))
                          {
                              if(!is.character(sequences[[i]]) || (!seqIn && !all(file.exists(sequences[[i]]))))
                                  stop("Argument 'sequences[[", i, "]]' has to be a character vector of filenames ",
