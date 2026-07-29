@@ -18,7 +18,7 @@ SpliceMap(cfg)
 \arguments{
   
   \item{cfg}{A list containing named elements with SpliceMap parameters
-    (see sQuote{Details} or SpliceMap documentation).}
+    (see \sQuote{Details} or SpliceMap documentation).}
  
 }
 
