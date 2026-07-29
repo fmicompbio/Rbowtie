@@ -8,7 +8,6 @@ Authors@R: c(person("Florian", "Hahne", role = c("aut")),
              person("Michael", "Stadler", role = c("aut", "cre"), 
                     email = "michael.stadler@fmi.ch", 
                     comment = c(ORCID = "0000-0002-2269-4934")))
-Maintainer: Michael Stadler <michael.stadler@fmi.ch>
 Imports: utils
 Suggests: testthat,
     parallel,
