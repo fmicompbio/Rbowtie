@@ -26,7 +26,7 @@ int advanceToId (const int id,
 		 ifstream &fhS1, ifstream &fhI1, ifstream &fhQ1, string &s1, string &i1, string &q1,
 		 ifstream &fhS2, ifstream &fhI2, ifstream &fhQ2, string &s2, string &i2, string &q2) {
     int currId = -1;
-    while(fhS1.good() & fhS2.good() & fhI1.good() & fhI2.good() & fhQ1.good() & fhQ2.good()) {
+    while(fhS1.good() && fhS2.good() && fhI1.good() && fhI2.good() && fhQ1.good() && fhQ2.good()) {
 	getline (fhS1, s1);
 	getline (fhI1, i1);
 	getline (fhQ1, q1);
