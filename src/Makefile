@@ -131,7 +131,12 @@ ifeq (1, $(WITH_TBBMALLOC))
 endif
 
 POPCNT_CAPABILITY ?= 1
-ifeq (aarch64,$(shell uname -m))
+# POPCNT relies on x86-only inline assembly 
+CPU_ARCH := $(shell $(CC) -dumpmachine 2>/dev/null)
+ifneq (,$(findstring aarch64,$(CPU_ARCH)))
+	POPCNT_CAPABILITY=0
+endif
+ifneq (,$(findstring arm64,$(CPU_ARCH)))
 	POPCNT_CAPABILITY=0
 endif
 ifeq (1, $(POPCNT_CAPABILITY))
