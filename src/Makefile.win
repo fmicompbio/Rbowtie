@@ -145,7 +145,12 @@ ifeq (1, $(WITH_TBBMALLOC))
 endif
 
 POPCNT_CAPABILITY ?= 1
-ifeq (aarch64,$(shell uname -m))
+# POPCNT relies on x86-only inline assembly 
+CPU_ARCH := $(shell $(CC) -dumpmachine 2>/dev/null)
+ifneq (,$(findstring aarch64,$(CPU_ARCH)))
+	POPCNT_CAPABILITY=0
+endif
+ifneq (,$(findstring arm64,$(CPU_ARCH)))
 	POPCNT_CAPABILITY=0
 endif
 ifeq (1, $(POPCNT_CAPABILITY))
@@ -279,7 +284,7 @@ DEFS=-fno-strict-aliasing \
      $(MM_DEF) \
      $(SHMEM_DEF)
 
-ALL_FLAGS = $(EXTRA_FLAGS) $(CFLAGS) $(CXXFLAGS)
+ALL_FLAGS = $(EXTRA_FLAGS) $(CXXFLAGS)
 DEBUG_DEFS = -DCOMPILER_OPTIONS="\"$(DEBUG_FLAGS) $(ALL_FLAGS)\""
 RELEASE_DEFS = -DCOMPILER_OPTIONS="\"$(RELEASE_FLAGS) $(ALL_FLAGS)\""
 
